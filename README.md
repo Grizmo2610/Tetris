@@ -10,7 +10,7 @@
 
 <br />
 <div align="center">
-  <a href="https://github.com/<org>/tetris-platform">
+  <a href="https://github.com/Grizmo2610/Tetris">
     <img src="images/logo.svg" alt="Logo" width="80" height="80">
   </a>
 
@@ -22,11 +22,11 @@
     <a href="docs/index.md"><strong>Explore the docs »</strong></a>
     <br />
     <br />
-    <a href="https://github.com/<org>/tetris-platform">View Repository</a>
+    <a href="https://github.com/Grizmo2610/Tetris">View Repository</a>
     ·
-    <a href="https://github.com/<org>/tetris-platform/issues/new?labels=bug&template=bug_report.md">Report Bug</a>
+    <a href="https://github.com/Grizmo2610/Tetris/issues/new?labels=bug&template=bug_report.md">Report Bug</a>
     ·
-    <a href="https://github.com/<org>/tetris-platform/issues/new?labels=enhancement&template=feature_request.md">Request Feature</a>
+    <a href="https://github.com/Grizmo2610/Tetris/issues/new?labels=enhancement&template=feature_request.md">Request Feature</a>
   </p>
 </div>
 
@@ -120,7 +120,7 @@ Explore the current documentation set:
 ### Clone the Repository
 
 ```sh
-git clone https://github.com/<org>/tetris-platform.git
+git clone https://github.com/Grizmo2610/Tetris.git
 cd tetris-platform
 ```
 
@@ -198,7 +198,7 @@ npm start
 * [ ] Phase 6 — ONNX DQN AI (Hard / Expert)
 * [ ] Phase 7 — Polish and production deploy
 
-See the [open issues](https://github.com/<org>/tetris-platform/issues) for a full list of proposed improvements and known issues.
+See the [open issues](https://github.com/Grizmo2610/Tetris/issues) for a full list of proposed improvements and known issues.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -224,7 +224,7 @@ Distributed under the MIT License. See [LICENSE](LICENSE) for more information.
 
 ## Contact
 
-Project Link: [https://github.com/<org>/tetris-platform](https://github.com/<org>/tetris-platform)
+Project Link: [https://github.com/Grizmo2610/Tetris](https://github.com/Grizmo2610/Tetris)
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -240,13 +240,13 @@ Project Link: [https://github.com/<org>/tetris-platform](https://github.com/<org
 
 ---
 
-[contributors-shield]: https://img.shields.io/github/contributors/<org>/tetris-platform.svg?style=for-the-badge
-[contributors-url]: https://github.com/<org>/tetris-platform/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/<org>/tetris-platform.svg?style=for-the-badge
-[forks-url]: https://github.com/<org>/tetris-platform/network/members
-[stars-shield]: https://img.shields.io/github/stars/<org>/tetris-platform.svg?style=for-the-badge
-[stars-url]: https://github.com/<org>/tetris-platform/stargazers
-[issues-shield]: https://img.shields.io/github/issues/<org>/tetris-platform.svg?style=for-the-badge
-[issues-url]: https://github.com/<org>/tetris-platform/issues
-[license-shield]: https://img.shields.io/github/license/<org>/tetris-platform.svg?style=for-the-badge
-[license-url]: https://github.com/<org>/tetris-platform/blob/main/LICENSE
+[contributors-shield]: https://img.shields.io/github/contributors/Grizmo2610/Tetris.svg?style=for-the-badge
+[contributors-url]: https://github.com/Grizmo2610/Tetris/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/Grizmo2610/Tetris.svg?style=for-the-badge
+[forks-url]: https://github.com/Grizmo2610/Tetris/network/members
+[stars-shield]: https://img.shields.io/github/stars/Grizmo2610/Tetris.svg?style=for-the-badge
+[stars-url]: https://github.com/Grizmo2610/Tetris/stargazers
+[issues-shield]: https://img.shields.io/github/issues/Grizmo2610/Tetris.svg?style=for-the-badge
+[issues-url]: https://github.com/Grizmo2610/Tetris/issues
+[license-shield]: https://img.shields.io/github/license/Grizmo2610/Tetris.svg?style=for-the-badge
+[license-url]: https://github.com/Grizmo2610/Tetris/blob/main/LICENSE
