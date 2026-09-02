@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/tronganh0104/side-effects-boardgame/blob/remaster/README.md
+    about: Start with the project README and documentation index.

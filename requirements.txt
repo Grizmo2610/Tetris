@@ -1,0 +1,21 @@
+# Core ML
+torch>=2.2.0
+torchvision>=0.17.0          # optional, used by some CNN variants
+
+# ONNX export & inference
+onnx>=1.16.0
+onnxruntime>=1.18.0          # CPU inference for local testing
+onnxruntime-gpu>=1.18.0      # GPU inference (Kaggle/Colab) — optional
+
+# RL / Environment
+gymnasium>=0.29.0            # Gym-compatible env base class
+
+# Experiment tracking
+wandb>=0.17.0
+
+# Numerical
+numpy>=1.26.0
+
+# Utilities
+tqdm>=4.66.0                 # training progress bars
+matplotlib>=3.8.0            # reward curve plots
