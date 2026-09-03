@@ -114,3 +114,6 @@ coverage/
 *.bak
 *.tmp
 *.temp
+
+*.zip
+*.sql
