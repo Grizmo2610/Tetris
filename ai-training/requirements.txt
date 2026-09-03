@@ -1,0 +1,13 @@
+# Core training
+torch>=2.0
+numpy>=1.24
+
+# Gymnasium environment
+gymnasium>=0.29
+
+# ONNX export + quantization
+onnx>=1.14
+onnxruntime>=1.17
+
+# Experiment tracking (optional, needed only with --wandb flag)
+wandb>=0.16
