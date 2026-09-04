@@ -1,9 +1,9 @@
-import { COLS, BUFFER, TOTAL_ROWS } from '../../utils/constants.js';
-import { PIECES, isValidPosition, ghostRow } from '../engine/piece.js';
+import { COLS, BUFFER, TOTAL_ROWS } from '../utils/constants.js';
+import { PIECES, isValidPosition, ghostRow } from '../game/engine/piece.js';
 import {
   lockPieceOnBoard, clearLines,
   getAggregateHeight, countHoles, getBumpiness, countCompleteLines,
-} from '../engine/board.js';
+} from '../game/engine/board.js';
 
 // ─── Heuristic weights (Thiery & Scherrer 2009) ───────────────────────────────
 

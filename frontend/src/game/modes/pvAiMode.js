@@ -5,25 +5,12 @@ import {
   applyHardDrop, applyHold, applyGravityTick, applyLockTick, receiveGarbage,
 } from '../engine/physics.js';
 import { InputHandler } from '../input/inputHandler.js';
-import { renderBoard, renderOpponentBoard, renderNextQueue, renderHoldPiece, BOARD_W, BOARD_H } from '../renderer/boardRenderer.js';
-import { COLS, BUFFER, TOTAL_ROWS } from '../../utils/constants.js';
+import { renderBoard, renderNextQueue, renderHoldPiece } from '../renderer/boardRenderer.js';
 import { AI_THINK_DELAY, AI_MOVE_DELAY } from '../../utils/constants.js';
-import { ghostRow } from '../engine/piece.js';
 
 // ─── PvAiMode ─────────────────────────────────────────────────────────────────
 // Human (left board) vs AI controller (right board).
 // AI implements { getNextMove(gameState): Promise<{rotation, column}>, destroy() }.
-//
-// Usage:
-//   const mode = new PvAiMode({
-//     mainCanvas, nextCanvas, holdCanvas,
-//     aiCanvas, aiNextCanvas, aiHoldCanvas,
-//     aiController,   // HeuristicAI | ONNXAIController
-//     difficulty,     // 'easy' | 'medium' | 'hard' | 'expert'
-//     onGameOver, onScoreUpdate,
-//   })
-//   mode.start()
-//   mode.destroy()
 
 export class PvAiMode {
   constructor({ mainCanvas, nextCanvas, holdCanvas,
@@ -47,29 +34,43 @@ export class PvAiMode {
     this.input = new InputHandler();
 
     // AI animation state
-    this.aiThinkTimer   = 0;
-    this.aiMoveTimer    = 0;
-    this.aiTargetPlacement = null; // { rotation, column }
-    this.aiCurrentRot  = 0;
-    this.aiCurrentCol  = 0;
-    this.aiMovesLeft   = [];  // queue of moves to animate
+    this.aiThinkTimer      = 0;
+    this.aiMoveTimer       = 0;
+    this.aiTargetPlacement = null;
+    this.aiMovesLeft       = [];
 
     this.raf = null;
     this.lastTime = null;
     this.over = false;
+    this.paused = false;
     this._loop = this._loop.bind(this);
   }
 
   start() {
     this.playerState = { ...createGameState(initQueue()), board: emptyBoard() };
     this.aiState     = { ...createGameState(initQueue()), board: emptyBoard() };
-    this.over = false;
-    this.aiThinkTimer = 0;
-    this.aiMoveTimer  = 0;
+    this.over   = false;
+    this.paused = false;
+    this.aiThinkTimer      = 0;
+    this.aiMoveTimer       = 0;
     this.aiTargetPlacement = null;
-    this.aiMovesLeft = [];
+    this.aiMovesLeft       = [];
     this.input.attach();
     this.lastTime = null;
+    this.raf = requestAnimationFrame(this._loop);
+  }
+
+  pause() {
+    if (this.paused || this.over) return;
+    this.paused = true;
+    cancelAnimationFrame(this.raf);
+    this.raf = null;
+  }
+
+  resume() {
+    if (!this.paused || this.over) return;
+    this.paused = false;
+    this.lastTime = null; // reset so dt=0 on first frame after resume
     this.raf = requestAnimationFrame(this._loop);
   }
 
@@ -82,9 +83,10 @@ export class PvAiMode {
   // ─── Private ────────────────────────────────────────────────────────────────
 
   _loop(ts) {
+    if (this.over || this.paused) return;
+
     const dt = this.lastTime ? Math.min(ts - this.lastTime, 100) : 0;
     this.lastTime = ts;
-    if (this.over) return;
 
     let ps = this.playerState;
     let as = this.aiState;
@@ -93,25 +95,26 @@ export class PvAiMode {
     const actions = this.input.update(dt);
     for (const action of actions) {
       switch (action) {
-        case 'moveLeft':   ps = applyMove(ps, -1);        break;
-        case 'moveRight':  ps = applyMove(ps, 1);         break;
-        case 'softDrop':   ps = applySoftDrop(ps);         break;
-        case 'hardDrop':   ps = applyHardDrop(ps);         break;
-        case 'rotateCW':   ps = applyRotation(ps, 1);      break;
-        case 'rotateCCW':  ps = applyRotation(ps, -1);     break;
-        case 'rotate180':  ps = applyRotation(applyRotation(ps, 1), 1); break;
-        case 'hold':       ps = applyHold(ps);             break;
+        case 'moveLeft':   ps = applyMove(ps, -1);                              break;
+        case 'moveRight':  ps = applyMove(ps, 1);                               break;
+        case 'softDrop':   ps = applySoftDrop(ps);                               break;
+        case 'hardDrop':   ps = applyHardDrop(ps);                               break;
+        case 'rotateCW':   ps = applyRotation(ps, 1);                            break;
+        case 'rotateCCW':  ps = applyRotation(ps, -1);                           break;
+        case 'rotate180':  ps = applyRotation(applyRotation(ps, 1), 1);          break;
+        case 'hold':       ps = applyHold(ps);                                   break;
       }
     }
+
+    // Player gravity + lock
     ps = applyGravityTick(ps, dt);
-    if (ps.onGround) {
-      const prev = ps.lockMoves;
-      ps = applyLockTick(ps, dt);
-      if (ps.lockMoves < prev || ps._garbageSent !== undefined) {
-        const g = ps._garbageSent ?? 0;
-        if (g > 0) as = receiveGarbage(as, g);
-        ps = { ...ps, _garbageSent: 0 };
-      }
+    if (ps.onGround) ps = applyLockTick(ps, dt);
+
+    // Collect garbage player generated this tick
+    const playerGarbage = ps._garbageSent ?? 0;
+    if (playerGarbage > 0) {
+      as = receiveGarbage(as, playerGarbage);
+      ps = { ...ps, _garbageSent: 0 };
     }
 
     // ── AI tick ───────────────────────────────────────────────────────────
@@ -121,7 +124,6 @@ export class PvAiMode {
         this.aiThinkTimer += dt;
         if (this.aiThinkTimer >= AI_THINK_DELAY[this.difficulty]) {
           this.aiThinkTimer = 0;
-          // Request move asynchronously, apply when done
           this._requestAIMove(as);
         }
       } else {
@@ -131,25 +133,35 @@ export class PvAiMode {
         if (this.aiMoveTimer >= moveDelay && this.aiMovesLeft.length > 0) {
           this.aiMoveTimer = 0;
           const action = this.aiMovesLeft.shift();
-          if (action === 'left')    as = applyMove(as, -1);
-          if (action === 'right')   as = applyMove(as, 1);
+          if (action === 'left')     as = applyMove(as, -1);
+          if (action === 'right')    as = applyMove(as, 1);
           if (action === 'rotateCW') as = applyRotation(as, 1);
         } else if (this.aiMovesLeft.length === 0) {
-          // Hard drop when no moves left
+          // Hard drop when no moves left → lock immediately
           as = applyHardDrop(as);
-          const g = as._garbageSent ?? 0;
-          if (g > 0) ps = receiveGarbage(ps, g);
-          as = { ...as, _garbageSent: 0 };
+          // Collect garbage AI generated
+          const aiGarbage = as._garbageSent ?? 0;
+          if (aiGarbage > 0) {
+            ps = receiveGarbage(ps, aiGarbage);
+            as = { ...as, _garbageSent: 0 };
+          }
           this.aiTargetPlacement = null;
+          this.aiThinkTimer = 0; // restart think phase
         }
 
-        // AI gravity still applies
+        // AI gravity still applies between moves
         as = applyGravityTick(as, dt);
+        // Check for garbage AI generated via gravity lock
+        const aiGravGarbage = as._garbageSent ?? 0;
+        if (aiGravGarbage > 0) {
+          ps = receiveGarbage(ps, aiGravGarbage);
+          as = { ...as, _garbageSent: 0 };
+        }
       }
     }
 
     this.playerState = ps;
-    this.aiState = as;
+    this.aiState     = as;
 
     // ── Render ────────────────────────────────────────────────────────────
     renderBoard(this.ctx, ps);
@@ -169,7 +181,7 @@ export class PvAiMode {
       this.over = true;
       const playerLost = ps.status === 'gameover';
       this.onGameOver({
-        winner: playerLost ? 'ai' : 'player',
+        winner:      playerLost ? 'ai' : 'player',
         playerScore: { score: ps.score, lines: ps.lines, level: ps.level },
         aiScore:     { score: as.score, lines: as.lines, level: as.level },
       });
@@ -184,22 +196,18 @@ export class PvAiMode {
       const placement = await this.aiController.getNextMove(state);
       if (!placement || this.over) return;
       this.aiTargetPlacement = placement;
-      this.aiMovesLeft = this._planMoves(state.piece, placement);
-      this.aiMoveTimer = 0;
+      this.aiMovesLeft       = this._planMoves(state.piece, placement);
+      this.aiMoveTimer       = 0;
     } catch (err) {
       console.warn('[PvAiMode] AI move error, skipping:', err);
       this.aiTargetPlacement = null;
     }
   }
 
-  // Generate sequence of move actions to reach target placement
   _planMoves(piece, placement) {
     const moves = [];
-    // Rotations
-    let rot = piece.rot;
-    let rotDiff = (placement.rotation - rot + 4) % 4;
+    let rotDiff = (placement.rotation - piece.rot + 4) % 4;
     for (let i = 0; i < rotDiff; i++) moves.push('rotateCW');
-    // Horizontal moves
     const colDiff = placement.column - piece.col;
     const dir = colDiff > 0 ? 'right' : 'left';
     for (let i = 0; i < Math.abs(colDiff); i++) moves.push(dir);

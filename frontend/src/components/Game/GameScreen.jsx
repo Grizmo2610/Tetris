@@ -6,13 +6,13 @@ import DisconnectOverlay from './DisconnectOverlay.jsx';
 const BOARD_W = COLS * CELL_SIZE;
 const BOARD_H = ROWS * CELL_SIZE;
 const PANEL_W = 100;
-const MINI_H  = 70;  // hold canvas height
-const NEXT_H  = 320; // next canvas height
+const MINI_H  = 70;   // hold canvas height
+const NEXT_H  = 320;  // next canvas height
 
 // ─── GameScreen ──────────────────────────────────────────────────────────────
 // Props:
 //   mode       – 'solo' | 'localPvp' | 'onlinePvp' | 'pvai'
-//   modeParams – extra params passed to the mode constructor (nickname, socket, etc.)
+//   modeParams – extra params passed to the mode constructor
 //   onExit     – called when player chooses to leave
 
 export default function GameScreen({ mode, modeParams = {}, onExit }) {
@@ -30,19 +30,44 @@ export default function GameScreen({ mode, modeParams = {}, onExit }) {
 
   const [scoreP1, setScoreP1] = useState({ score: 0, lines: 0, level: 1 });
   const [scoreP2, setScoreP2] = useState({ score: 0, lines: 0, level: 1 });
-  const [gameOver, setGameOver] = useState(null);      // null | result object
-  const [disconnect, setDisconnect] = useState(null);  // null | { timeoutSeconds }
-  const [paused, setPaused]   = useState(false);
-  const [countdown, setCountdown] = useState(null);    // 3|2|1|0|null
+  const [gameOver, setGameOver]     = useState(null);   // null | result object
+  const [disconnect, setDisconnect] = useState(null);   // null | { timeoutSeconds }
+  const [paused, setPaused]         = useState(false);
+  const [countdown, setCountdown]   = useState(null);   // 3|2|1|0|null
 
   const needsSecondBoard = ['localPvp', 'onlinePvp', 'pvai'].includes(mode);
+
+  // ─── ESC: toggle pause ────────────────────────────────────────────────────
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key !== 'Escape') return;
+      // Ignore ESC when countdown is active, game is over, or disconnecting
+      if (countdown !== null || gameOver !== null || disconnect !== null) return;
+
+      const instance = modeInstanceRef.current;
+      if (!instance) return;
+
+      setPaused(prev => {
+        const nextPaused = !prev;
+        if (nextPaused) {
+          instance.pause?.();
+        } else {
+          instance.resume?.();
+        }
+        return nextPaused;
+      });
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [countdown, gameOver, disconnect]);
 
   // ─── Countdown then start mode ────────────────────────────────────────────
 
   const startMode = useCallback(async () => {
     if (!mainRef.current) return;
 
-    // Dynamic import to keep initial bundle lean
     let ModeClass;
     if (mode === 'solo') {
       const { SoloMode } = await import('../../game/modes/soloMode.js');
@@ -67,7 +92,10 @@ export default function GameScreen({ mode, modeParams = {}, onExit }) {
         else if (Array.isArray(data)) { setScoreP1(data[0]); setScoreP2(data[1]); }
         else setScoreP1(data);
       },
-      onGameOver: (result) => setGameOver(result),
+      onGameOver: (result) => {
+        setPaused(false);
+        setGameOver(result);
+      },
     };
 
     const modeArgs = {
@@ -76,9 +104,9 @@ export default function GameScreen({ mode, modeParams = {}, onExit }) {
         p1Canvases: { main: mainRef.current, next: nextRef.current, hold: holdRef.current },
         p2Canvases: { main: main2Ref.current, next: next2Ref.current, hold: hold2Ref.current },
         opponentCanvas: main2Ref.current,
-        aiCanvas: main2Ref.current,
-        aiNextCanvas: next2Ref.current,
-        aiHoldCanvas: hold2Ref.current,
+        aiCanvas:       main2Ref.current,
+        aiNextCanvas:   next2Ref.current,
+        aiHoldCanvas:   hold2Ref.current,
       } : {}),
       onDisconnect: ({ type, timeoutSeconds }) => {
         if (type === 'disconnected') setDisconnect({ timeoutSeconds });
@@ -116,6 +144,7 @@ export default function GameScreen({ mode, modeParams = {}, onExit }) {
   const handleRematch = useCallback(() => {
     setGameOver(null);
     setDisconnect(null);
+    setPaused(false);
     setScoreP1({ score: 0, lines: 0, level: 1 });
     setScoreP2({ score: 0, lines: 0, level: 1 });
     modeInstanceRef.current?.destroy();
@@ -131,6 +160,13 @@ export default function GameScreen({ mode, modeParams = {}, onExit }) {
       }
     }, 1000);
   }, [startMode]);
+
+  // ─── Resume from pause overlay button ────────────────────────────────────
+
+  const handleResume = useCallback(() => {
+    modeInstanceRef.current?.resume?.();
+    setPaused(false);
+  }, []);
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -152,7 +188,7 @@ export default function GameScreen({ mode, modeParams = {}, onExit }) {
           holdRef={hold2Ref}
           score={scoreP2}
           label={
-            mode === 'pvai' ? `AI (${modeParams.difficulty ?? 'medium'})` :
+            mode === 'pvai'      ? `AI (${modeParams.difficulty ?? 'medium'})` :
             mode === 'onlinePvp' ? (modeParams.opponentNickname ?? 'Opponent') :
             (modeParams.nickname2 ?? 'Player 2')
           }
@@ -175,6 +211,38 @@ export default function GameScreen({ mode, modeParams = {}, onExit }) {
           onExit={onExit}
         />
       )}
+
+      {/* Pause overlay — only shown when paused and no game-over */}
+      {paused && !gameOver && (
+        <PauseOverlay
+          onResume={handleResume}
+          onExit={onExit}
+          isOnline={mode === 'onlinePvp'}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── PauseOverlay ─────────────────────────────────────────────────────────────
+
+function PauseOverlay({ onResume, onExit, isOnline }) {
+  return (
+    <div style={styles.pauseOverlay}>
+      <div style={styles.pauseBox}>
+        <div style={styles.pauseTitle}>TẠM DỪNG</div>
+        {isOnline && (
+          <div style={styles.pauseWarning}>
+            Lưu ý: game online vẫn tiếp tục trên server!
+          </div>
+        )}
+        <button style={styles.pauseBtn} onClick={onResume}>
+          ▶ Tiếp tục (ESC)
+        </button>
+        <button style={{ ...styles.pauseBtn, ...styles.pauseBtnExit }} onClick={onExit}>
+          ✕ Thoát
+        </button>
+      </div>
     </div>
   );
 }
@@ -219,16 +287,9 @@ function SidePanel({ nextRef, holdRef, score, label, left }) {
       <InfoBox title="Score"><Stat>{score.score.toLocaleString()}</Stat></InfoBox>
       <InfoBox title="Lines"><Stat>{score.lines}</Stat></InfoBox>
       <InfoBox title="Level"><Stat>{score.level}</Stat></InfoBox>
-      {!left && (
-        <InfoBox title="Next">
-          <canvas ref={nextRef} width={PANEL_W - 16} height={NEXT_H} />
-        </InfoBox>
-      )}
-      {left && (
-        <InfoBox title="Next">
-          <canvas ref={nextRef} width={PANEL_W - 16} height={NEXT_H} />
-        </InfoBox>
-      )}
+      <InfoBox title="Next">
+        <canvas ref={nextRef} width={PANEL_W - 16} height={NEXT_H} />
+      </InfoBox>
     </div>
   );
 }
@@ -293,5 +354,56 @@ const styles = {
     fontWeight: 500,
     color: 'var(--text-primary)',
     fontFamily: 'var(--font-mono, monospace)',
+  },
+  // ── Pause overlay
+  pauseOverlay: {
+    position: 'fixed', inset: 0,
+    background: 'rgba(5,5,20,0.82)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    zIndex: 100,
+  },
+  pauseBox: {
+    background: 'var(--surface-1, #12122a)',
+    border: '1px solid var(--border, #2a2a4a)',
+    borderRadius: 12,
+    padding: '2rem 2.5rem',
+    display: 'flex', flexDirection: 'column', alignItems: 'center',
+    gap: 16,
+    minWidth: 260,
+  },
+  pauseTitle: {
+    fontSize: 28,
+    fontWeight: 700,
+    color: 'var(--text-primary, #fff)',
+    letterSpacing: 4,
+    fontFamily: 'var(--font-sans)',
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  pauseWarning: {
+    fontSize: 12,
+    color: '#f0a040',
+    textAlign: 'center',
+    maxWidth: 220,
+    lineHeight: 1.5,
+    fontFamily: 'var(--font-sans)',
+  },
+  pauseBtn: {
+    width: '100%',
+    padding: '10px 0',
+    fontSize: 14,
+    fontWeight: 600,
+    fontFamily: 'var(--font-sans)',
+    letterSpacing: 1,
+    background: 'var(--accent, #3a3aff)',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 8,
+    cursor: 'pointer',
+  },
+  pauseBtnExit: {
+    background: 'transparent',
+    border: '1px solid var(--border, #2a2a4a)',
+    color: 'var(--text-muted, #888)',
   },
 };

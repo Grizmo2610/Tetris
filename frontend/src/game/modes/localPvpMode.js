@@ -10,15 +10,6 @@ import { renderBoard, renderNextQueue, renderHoldPiece } from '../renderer/board
 // ─── LocalPvpMode ──────────────────────────────────────────────────────────────
 // Two boards, two InputHandlers, one shared requestAnimationFrame loop.
 // Garbage flows: P1 → P2 and P2 → P1 via _garbageSent metadata on each lock.
-//
-// Usage:
-//   const mode = new LocalPvpMode({
-//     p1: { mainCanvas, nextCanvas, holdCanvas },
-//     p2: { mainCanvas, nextCanvas, holdCanvas },
-//     onGameOver, onScoreUpdate,
-//   })
-//   mode.start()
-//   mode.destroy()
 
 export class LocalPvpMode {
   constructor({ p1Canvases, p2Canvases, onGameOver, onScoreUpdate }) {
@@ -36,7 +27,7 @@ export class LocalPvpMode {
       p2Canvases.hold.getContext('2d'),
     ];
 
-    this.onGameOver = onGameOver ?? (() => {});
+    this.onGameOver    = onGameOver    ?? (() => {});
     this.onScoreUpdate = onScoreUpdate ?? (() => {});
 
     this.states = [null, null];
@@ -44,20 +35,36 @@ export class LocalPvpMode {
       new InputHandler(InputHandler.loadBindings('p1') ?? DEFAULT_BINDINGS_P1),
       new InputHandler(InputHandler.loadBindings('p2') ?? DEFAULT_BINDINGS_P2),
     ];
-    this.raf = null;
+    this.raf      = null;
     this.lastTime = null;
-    this.over = false;
+    this.over     = false;
+    this.paused   = false;
     this._loop = this._loop.bind(this);
   }
 
   start() {
     for (let i = 0; i < 2; i++) {
       const queue = initQueue();
-      const base = createGameState(queue);
+      const base  = createGameState(queue);
       this.states[i] = { ...base, board: emptyBoard() };
       this.inputs[i].attach();
     }
-    this.over = false;
+    this.over     = false;
+    this.paused   = false;
+    this.lastTime = null;
+    this.raf = requestAnimationFrame(this._loop);
+  }
+
+  pause() {
+    if (this.paused || this.over) return;
+    this.paused = true;
+    cancelAnimationFrame(this.raf);
+    this.raf = null;
+  }
+
+  resume() {
+    if (!this.paused || this.over) return;
+    this.paused   = false;
     this.lastTime = null;
     this.raf = requestAnimationFrame(this._loop);
   }
@@ -71,11 +78,13 @@ export class LocalPvpMode {
   // ─── Private ────────────────────────────────────────────────────────────────
 
   _loop(ts) {
+    if (this.over || this.paused) return;
+
     const dt = this.lastTime ? Math.min(ts - this.lastTime, 100) : 0;
     this.lastTime = ts;
-    if (this.over) return;
 
-    const garbagePending = [0, 0]; // garbage to send TO player i (collected this frame)
+    // garbage[i] = lines to send TO player i (accumulated this frame)
+    const garbagePending = [0, 0];
 
     for (let i = 0; i < 2; i++) {
       let s = this.states[i];
@@ -84,23 +93,21 @@ export class LocalPvpMode {
       const actions = this.inputs[i].update(dt);
       for (const action of actions) {
         switch (action) {
-          case 'moveLeft':   s = applyMove(s, -1);        break;
-          case 'moveRight':  s = applyMove(s, 1);         break;
-          case 'softDrop':   s = applySoftDrop(s);         break;
-          case 'hardDrop':   s = applyHardDrop(s);         break;
-          case 'rotateCW':   s = applyRotation(s, 1);      break;
-          case 'rotateCCW':  s = applyRotation(s, -1);     break;
-          case 'rotate180':  s = applyRotation(applyRotation(s, 1), 1); break;
-          case 'hold':       s = applyHold(s);             break;
-          // P1 can pause (shared pause not implemented for local PvP)
+          case 'moveLeft':   s = applyMove(s, -1);                             break;
+          case 'moveRight':  s = applyMove(s, 1);                              break;
+          case 'softDrop':   s = applySoftDrop(s);                              break;
+          case 'hardDrop':   s = applyHardDrop(s);                              break;
+          case 'rotateCW':   s = applyRotation(s, 1);                           break;
+          case 'rotateCCW':  s = applyRotation(s, -1);                          break;
+          case 'rotate180':  s = applyRotation(applyRotation(s, 1), 1);         break;
+          case 'hold':       s = applyHold(s);                                  break;
         }
       }
 
-      const prevLockMoves = s.lockMoves;
       s = applyGravityTick(s, dt);
       if (s.onGround) s = applyLockTick(s, dt);
 
-      // Collect garbage generated this frame (set by applyLock via _garbageSent)
+      // Collect garbage generated this tick (set by applyLock)
       const garbage = s._garbageSent ?? 0;
       if (garbage > 0) {
         garbagePending[1 - i] += garbage;

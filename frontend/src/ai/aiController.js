@@ -1,4 +1,5 @@
 import { HeuristicAI } from './heuristic.js';
+import { MetaHeuristicAI } from './metaHeuristic.js';
 import { COLS, BUFFER } from '../utils/constants.js';
 import { PIECES, isValidPosition } from '../game/engine/piece.js';
 
@@ -133,6 +134,12 @@ export async function createAIController(difficulty) {
   if (difficulty === 'easy' || difficulty === 'medium') {
     return new HeuristicAI(difficulty);
   }
+
+  // Meta Heuristic — không cần model, không cần network
+  if (difficulty === 'meta-easy')   return new MetaHeuristicAI('meta-easy');
+  if (difficulty === 'meta-medium') return new MetaHeuristicAI('meta-medium');
+  if (difficulty === 'meta-hard')   return new MetaHeuristicAI('meta-hard');
+  if (difficulty === 'meta-expert') return new MetaHeuristicAI('meta-expert');
 
   // Hard / Expert: load ONNX model from R2
   const modelUrl = difficulty === 'hard'

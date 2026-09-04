@@ -72,5 +72,11 @@ export const COMBO_GARBAGE = [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 4, 4]; // 12+ = 4
 export const DISCONNECT_TIMEOUT_MS = 30_000;
 
 // ─── AI timing ────────────────────────────────────────────────────────────────
-export const AI_THINK_DELAY = { easy: 500, medium: 300, hard: 200, expert: 100 };
-export const AI_MOVE_DELAY  = { easy: 200, medium: 150, hard: 100, expert: 50  };
+export const AI_THINK_DELAY = {
+  easy: 500, medium: 300, hard: 200, expert: 100,
+  'meta-easy': 450, 'meta-medium': 250, 'meta-hard': 180, 'meta-expert': 80,
+};
+export const AI_MOVE_DELAY = {
+  easy: 200, medium: 150, hard: 100, expert: 50,
+  'meta-easy': 180, 'meta-medium': 120, 'meta-hard': 80, 'meta-expert': 40,
+};

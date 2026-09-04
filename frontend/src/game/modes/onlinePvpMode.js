@@ -5,28 +5,18 @@ import {
   applyHardDrop, applyHold, applyGravityTick, applyLockTick, receiveGarbage,
 } from '../engine/physics.js';
 import { InputHandler } from '../input/inputHandler.js';
-import { renderBoard, renderOpponentBoard, renderNextQueue, renderHoldPiece, BOARD_W, BOARD_H } from '../renderer/boardRenderer.js';
-import { COLS, BUFFER, TOTAL_ROWS } from '../../utils/constants.js';
+import { renderBoard, renderOpponentBoard, renderNextQueue, renderHoldPiece } from '../renderer/boardRenderer.js';
+import { COLS, ROWS, BUFFER, TOTAL_ROWS } from '../../utils/constants.js';
 
 // ─── OnlinePvpMode ────────────────────────────────────────────────────────────
 // Handles one player's local game + opponent board display via WebSocket.
-//
-// Usage:
-//   const mode = new OnlinePvpMode({
-//     mainCanvas, nextCanvas, holdCanvas,
-//     opponentCanvas,
-//     socket,                    // socketClient instance
-//     onGameOver, onScoreUpdate, onDisconnect,
-//   })
-//   mode.start()
-//   mode.destroy()
 
 export class OnlinePvpMode {
   constructor({ mainCanvas, nextCanvas, holdCanvas, opponentCanvas,
                 socket, onGameOver, onScoreUpdate, onDisconnect }) {
-    this.mainCanvas = mainCanvas;
-    this.nextCanvas = nextCanvas;
-    this.holdCanvas = holdCanvas;
+    this.mainCanvas     = mainCanvas;
+    this.nextCanvas     = nextCanvas;
+    this.holdCanvas     = holdCanvas;
     this.opponentCanvas = opponentCanvas;
 
     this.ctx  = mainCanvas.getContext('2d');
@@ -34,31 +24,50 @@ export class OnlinePvpMode {
     this.hctx = holdCanvas.getContext('2d');
     this.octx = opponentCanvas.getContext('2d');
 
-    this.socket = socket;
+    this.socket        = socket;
     this.onGameOver    = onGameOver    ?? (() => {});
     this.onScoreUpdate = onScoreUpdate ?? (() => {});
     this.onDisconnect  = onDisconnect  ?? (() => {});
 
-    this.state = null;
-    this.opponentBoard = null;      // flat Int8Array(200) from opponent
+    this.state                  = null;
+    this.opponentBoard          = null;
     this.opponentPendingGarbage = 0;
 
-    this.input = new InputHandler();
-    this.raf = null;
+    this.input    = new InputHandler();
+    this.raf      = null;
     this.lastTime = null;
-    this.over = false;
+    this.over     = false;
+    this.paused   = false;
     this._loop = this._loop.bind(this);
     this._socketListeners = {};
   }
 
   start() {
     const queue = initQueue();
-    const base = createGameState(queue);
-    this.state = { ...base, board: emptyBoard() };
-    this.opponentBoard = new Int8Array(COLS * ROWS); // cleared board
-    this.over = false;
+    const base  = createGameState(queue);
+    this.state         = { ...base, board: emptyBoard() };
+    this.opponentBoard = new Int8Array(COLS * ROWS);
+    this.over   = false;
+    this.paused = false;
     this.input.attach();
     this._attachSocketListeners();
+    this.lastTime = null;
+    this.raf = requestAnimationFrame(this._loop);
+  }
+
+  // Online mode: ESC shows pause overlay but does NOT freeze local game loop
+  // (pausing mid-game against a live opponent is unfair). We expose pause/resume
+  // so GameScreen can show a "Paused" overlay without stopping the rAF loop.
+  pause() {
+    if (this.paused || this.over) return;
+    this.paused = true;
+    cancelAnimationFrame(this.raf);
+    this.raf = null;
+  }
+
+  resume() {
+    if (!this.paused || this.over) return;
+    this.paused   = false;
     this.lastTime = null;
     this.raf = requestAnimationFrame(this._loop);
   }
@@ -75,7 +84,6 @@ export class OnlinePvpMode {
     const s = this.socket;
 
     const onOpponentUpdate = ({ board, garbageSent, linesCleared, combo }) => {
-      // board is flat array [200] of visible rows (row 0 = top visible)
       this.opponentBoard = new Int8Array(board);
       if (garbageSent > 0) {
         this.state = receiveGarbage(this.state, garbageSent);
@@ -99,22 +107,22 @@ export class OnlinePvpMode {
     const onGameOver = ({ winner, loser, reason }) => {
       this.over = true;
       cancelAnimationFrame(this.raf);
-      const s = this.state;
-      this.onGameOver({ winner, loser, reason, score: s.score, lines: s.lines, level: s.level });
+      const st = this.state;
+      this.onGameOver({ winner, loser, reason, score: st.score, lines: st.lines, level: st.level });
     };
 
-    s.on('opponent-update', onOpponentUpdate);
-    s.on('opponent-disconnected', onOpponentDisconnected);
-    s.on('opponent-reconnected', onOpponentReconnected);
-    s.on('opponent-left', onOpponentLeft);
-    s.on('game-over', onGameOver);
+    s.on('opponent-update',        onOpponentUpdate);
+    s.on('opponent-disconnected',  onOpponentDisconnected);
+    s.on('opponent-reconnected',   onOpponentReconnected);
+    s.on('opponent-left',          onOpponentLeft);
+    s.on('game-over',              onGameOver);
 
     this._socketListeners = {
-      'opponent-update': onOpponentUpdate,
+      'opponent-update':       onOpponentUpdate,
       'opponent-disconnected': onOpponentDisconnected,
-      'opponent-reconnected': onOpponentReconnected,
-      'opponent-left': onOpponentLeft,
-      'game-over': onGameOver,
+      'opponent-reconnected':  onOpponentReconnected,
+      'opponent-left':         onOpponentLeft,
+      'game-over':             onGameOver,
     };
   }
 
@@ -137,59 +145,48 @@ export class OnlinePvpMode {
     return flat;
   }
 
-  // ─── Emit game-update after each piece lock ────────────────────────────────
-
   _emitUpdate(state) {
     const board = this._serializeBoard(state.board);
     this.socket.emit('game-update', {
       board,
-      garbageSent: state._garbageSent ?? 0,
+      garbageSent:  state._garbageSent  ?? 0,
       linesCleared: state._linesCleared ?? 0,
-      combo: state.combo,
+      combo:        state.combo,
     });
   }
 
   // ─── Main loop ─────────────────────────────────────────────────────────────
 
   _loop(ts) {
+    if (this.over || this.paused) return;
+
     const dt = this.lastTime ? Math.min(ts - this.lastTime, 100) : 0;
     this.lastTime = ts;
-    if (this.over) return;
 
     let s = this.state;
     if (!s || s.status !== 'playing') return;
 
-    const prevLockMoves = s.lockMoves;
     const actions = this.input.update(dt);
     for (const action of actions) {
       switch (action) {
-        case 'moveLeft':   s = applyMove(s, -1);        break;
-        case 'moveRight':  s = applyMove(s, 1);         break;
-        case 'softDrop':   s = applySoftDrop(s);         break;
-        case 'hardDrop':   s = applyHardDrop(s);         break;
-        case 'rotateCW':   s = applyRotation(s, 1);      break;
-        case 'rotateCCW':  s = applyRotation(s, -1);     break;
-        case 'rotate180':  s = applyRotation(applyRotation(s, 1), 1); break;
-        case 'hold':       s = applyHold(s);             break;
-        case 'pause':
-          // Pause not supported in online mode; could show warning
-          break;
+        case 'moveLeft':   s = applyMove(s, -1);                             break;
+        case 'moveRight':  s = applyMove(s, 1);                              break;
+        case 'softDrop':   s = applySoftDrop(s);                              break;
+        case 'hardDrop':   s = applyHardDrop(s);                              break;
+        case 'rotateCW':   s = applyRotation(s, 1);                           break;
+        case 'rotateCCW':  s = applyRotation(s, -1);                          break;
+        case 'rotate180':  s = applyRotation(applyRotation(s, 1), 1);         break;
+        case 'hold':       s = applyHold(s);                                  break;
       }
     }
 
-    const wasLocked = s.lockMoves !== prevLockMoves; // rough proxy
     s = applyGravityTick(s, dt);
-    const prevMoves = s.lockMoves;
     if (s.onGround) s = applyLockTick(s, dt);
 
-    // Detect lock event (lockMoves reset after locking)
-    const justLocked = s.lockMoves < prevMoves || s._garbageSent !== undefined && s._linesCleared !== undefined;
-
-    if (justLocked || (s._linesCleared !== undefined && s._linesCleared >= 0)) {
-      if (s._garbageSent !== undefined) {
-        this._emitUpdate(s);
-        s = { ...s, _garbageSent: undefined, _linesCleared: undefined, _tspinType: undefined };
-      }
+    // Emit to server when a piece locked (_garbageSent is set by applyLock)
+    if (s._garbageSent !== undefined) {
+      this._emitUpdate(s);
+      s = { ...s, _garbageSent: undefined, _linesCleared: undefined, _tspinType: undefined };
     }
 
     this.state = s;
@@ -204,12 +201,7 @@ export class OnlinePvpMode {
 
     if (s.status === 'gameover') {
       this.over = true;
-      // Emit our loss to server
-      this.socket.emit('game-over', {
-        score: s.score,
-        lines: s.lines,
-        level: s.level,
-      });
+      this.socket.emit('game-over', { score: s.score, lines: s.lines, level: s.level });
       return;
     }
 
@@ -217,7 +209,6 @@ export class OnlinePvpMode {
   }
 
   _renderOpponent() {
-    // Reconstruct 2D board from flat array for renderer
     const board2d = Array.from({ length: TOTAL_ROWS }, () => new Int8Array(COLS));
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
