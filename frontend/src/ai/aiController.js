@@ -141,13 +141,23 @@ export async function createAIController(difficulty) {
   if (difficulty === 'meta-hard')   return new MetaHeuristicAI('meta-hard');
   if (difficulty === 'meta-expert') return new MetaHeuristicAI('meta-expert');
 
-  // Hard / Expert: load ONNX model from R2
+  // Hard / Expert: load ONNX model from R2.
+  // If anything fails, fall back to the equivalent MetaHeuristicAI level
+  // so the game remains fully playable without a model file.
+  const metaFallback = difficulty === 'hard' ? 'meta-hard' : 'meta-expert';
+
   const modelUrl = difficulty === 'hard'
     ? (import.meta.env.VITE_R2_MODEL_URL_HARD   ?? '/models/tetris-ai-hard-int8.onnx')
     : (import.meta.env.VITE_R2_MODEL_URL_EXPERT ?? '/models/tetris-ai-expert-int8.onnx');
 
-  const response = await fetch(modelUrl);
-  if (!response.ok) throw new Error(`Model fetch failed: ${response.status}`);
+  let response;
+  try {
+    response = await fetch(modelUrl);
+    if (!response.ok) throw new Error(`Model fetch failed: ${response.status}`);
+  } catch (err) {
+    console.warn(`[AI] ONNX model unavailable (${err.message}), falling back to ${metaFallback}`);
+    return new MetaHeuristicAI(metaFallback);
+  }
   const modelBuffer = await response.arrayBuffer();
 
   const worker = new Worker(
@@ -156,14 +166,20 @@ export async function createAIController(difficulty) {
   );
 
   // Wait for READY signal with 10s timeout
-  await new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error('ONNX worker init timeout')), 10_000);
-    worker.postMessage({ type: 'INIT', modelBuffer }, [modelBuffer]);
-    worker.onmessage = ({ data }) => {
-      if (data.type === 'READY')  { clearTimeout(t); resolve(); }
-      if (data.type === 'ERROR')  { clearTimeout(t); reject(new Error(data.message)); }
-    };
-  });
+  try {
+    await new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('ONNX worker init timeout')), 10_000);
+      worker.postMessage({ type: 'INIT', modelBuffer }, [modelBuffer]);
+      worker.onmessage = ({ data }) => {
+        if (data.type === 'READY')  { clearTimeout(t); resolve(); }
+        if (data.type === 'ERROR')  { clearTimeout(t); reject(new Error(data.message)); }
+      };
+    });
+  } catch (err) {
+    console.warn(`[AI] ONNX worker failed (${err.message}), falling back to ${metaFallback}`);
+    worker.terminate();
+    return new MetaHeuristicAI(metaFallback);
+  }
 
   return new ONNXAIController(worker);
 }

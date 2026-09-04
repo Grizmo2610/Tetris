@@ -121,3 +121,6 @@ coverage/
 # Unignore ai-training/env/ (it's source code, not a venv)
 !ai-training/env/
 !ai-training/env/*
+ai-training
+
+pack.ps1

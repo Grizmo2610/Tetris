@@ -6,6 +6,8 @@ export const TOTAL_ROWS = ROWS + BUFFER; // 24 total rows in board array
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
 export const CELL_SIZE = 30;     // pixels per cell
+export const BOARD_W = COLS * CELL_SIZE;   // 300px
+export const BOARD_H = ROWS * CELL_SIZE;   // 600px
 
 // ─── Piece colors (index = piece type 0-8) ────────────────────────────────────
 export const COLORS = {
@@ -31,9 +33,8 @@ export const PIECE_L = 7;
 
 // ─── Gravity (frames per cell at 60 fps) — Tetris Guideline table ─────────────
 export const GRAVITY_TABLE = [
-  48, 43, 38, 33, 28, 23, 18, 13, 8, 6,
-  5, 5, 5, 4, 4, 4, 3, 3, 3, 2,
-  2, 2, 2, 2, 2, 2, 2, 2, 2, 1,
+  24, 20, 17, 14, 11, 9, 7, 5, 4, 3,
+   3,  2,  2,  2,  2, 1, 1, 1, 1, 1,
 ];
 
 // ─── Lock-down ────────────────────────────────────────────────────────────────

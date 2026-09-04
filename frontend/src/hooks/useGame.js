@@ -59,11 +59,14 @@ export function useGame() {
         const aiController = await createAIController(params.difficulty);
         setModeParams(prev => ({ ...prev, aiController, loading: false }));
       } catch (err) {
-        console.warn('[useGame] ONNX load failed, falling back to medium heuristic:', err);
-        showToast('AI model unavailable, using Medium difficulty', false);
+        // createAIController already attempts its own meta fallback internally.
+        // This outer catch handles any remaining unexpected failure.
+        const metaFallback = params.difficulty === 'hard' ? 'meta-hard' : 'meta-expert';
+        console.warn(`[useGame] AI load failed, falling back to ${metaFallback}:`, err);
+        showToast(`AI model unavailable, using ${metaFallback} instead`, false);
         const { createAIController } = await import('../ai/aiController.js');
-        const aiController = await createAIController('medium');
-        setModeParams(prev => ({ ...prev, aiController, difficulty: 'medium', loading: false }));
+        const aiController = await createAIController(metaFallback);
+        setModeParams(prev => ({ ...prev, aiController, difficulty: metaFallback, loading: false }));
       }
       return;
     }

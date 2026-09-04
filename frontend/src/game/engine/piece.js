@@ -83,7 +83,38 @@ export function spawnPiece(type) {
   return { type, rot: 0, row: 1, col };
 }
 
+// ─── Seeded RNG (Mulberry32) ──────────────────────────────────────────────────
+// A fast, high-quality 32-bit PRNG. Deterministic given the same seed.
+// Used to synchronize piece queues between two players in the same match.
+
+function mulberry32(seed) {
+  let s = seed >>> 0;
+  return function () {
+    s += 0x6d2b79f5;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) >>> 0;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Generate a random 32-bit integer seed, shareable between players.
+export function generateSeed() {
+  return (Math.random() * 0xffffffff) >>> 0;
+}
+
 // ─── 7-bag randomizer ────────────────────────────────────────────────────────
+
+// Shuffle a bag using a provided rng() function (returns [0,1)).
+function shuffleBag(rng) {
+  const bag = [1, 2, 3, 4, 5, 6, 7];
+  for (let i = bag.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [bag[i], bag[j]] = [bag[j], bag[i]];
+  }
+  return bag;
+}
+
+// Legacy: unseeded bag (kept for solo mode which doesn't need sync).
 export function newBag() {
   const bag = [1, 2, 3, 4, 5, 6, 7];
   for (let i = bag.length - 1; i > 0; i--) {
@@ -93,12 +124,21 @@ export function newBag() {
   return bag;
 }
 
-// Initialize queue with two bags (ensures 5+ lookahead always available)
+// Initialize queue with two bags — unseeded (solo mode).
 export function initQueue() {
   return [...newBag(), ...newBag()];
 }
 
-// Pop next piece type from queue, refill if needed
+// Initialize queue from a seed — both players must receive the same seed
+// so their piece sequences are identical from the start of the match.
+export function initQueueFromSeed(seed) {
+  const rng = mulberry32(seed);
+  return [...shuffleBag(rng), ...shuffleBag(rng)];
+}
+
+// Pop next piece type from queue, refill if needed.
+// Refill uses Math.random() — divergence after the initial bags is intentional
+// (players will have taken different actions so their queues will differ anyway).
 export function dequeue(queue) {
   const next = [...queue];
   if (next.length < 7) next.push(...newBag());

@@ -192,6 +192,7 @@ export default function GameScreen({ mode, modeParams = {}, onExit }) {
             mode === 'onlinePvp' ? (modeParams.opponentNickname ?? 'Opponent') :
             (modeParams.nickname2 ?? 'Player 2')
           }
+          countdown={countdown}
           right
         />
       )}
@@ -251,15 +252,22 @@ function PauseOverlay({ onResume, onExit, isOnline }) {
 
 function PlayerPanel({ canvasRef, nextRef, holdRef, score, label, countdown, right }) {
   return (
-    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexShrink: 0 }}>
       {!right && <SidePanel nextRef={nextRef} holdRef={holdRef} score={score} label={label} left />}
 
-      <div style={{ position: 'relative' }}>
+      <div style={{ position: 'relative', flexShrink: 0 }}>
         <canvas
           ref={canvasRef}
           width={BOARD_W}
           height={BOARD_H}
-          style={{ display: 'block', border: '1px solid #2a2a4a', borderRadius: 4 }}
+          style={{
+            display: 'block',
+            width: BOARD_W,
+            height: BOARD_H,
+            border: '1px solid #2a2a4a',
+            borderRadius: 4,
+            imageRendering: 'pixelated',
+          }}
         />
         {countdown !== null && (
           <div style={styles.countdown}>
@@ -279,16 +287,26 @@ function PlayerPanel({ canvasRef, nextRef, holdRef, score, label, countdown, rig
 
 function SidePanel({ nextRef, holdRef, score, label, left }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: PANEL_W }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: PANEL_W, flexShrink: 0 }}>
       <div style={styles.label}>{label}</div>
       <InfoBox title="Hold">
-        <canvas ref={holdRef} width={PANEL_W - 16} height={MINI_H} />
+        <canvas
+          ref={holdRef}
+          width={PANEL_W - 16}
+          height={MINI_H}
+          style={{ display: 'block', width: PANEL_W - 16, height: MINI_H, imageRendering: 'pixelated' }}
+        />
       </InfoBox>
       <InfoBox title="Score"><Stat>{score.score.toLocaleString()}</Stat></InfoBox>
       <InfoBox title="Lines"><Stat>{score.lines}</Stat></InfoBox>
       <InfoBox title="Level"><Stat>{score.level}</Stat></InfoBox>
       <InfoBox title="Next">
-        <canvas ref={nextRef} width={PANEL_W - 16} height={NEXT_H} />
+        <canvas
+          ref={nextRef}
+          width={PANEL_W - 16}
+          height={NEXT_H}
+          style={{ display: 'block', width: PANEL_W - 16, height: NEXT_H, imageRendering: 'pixelated' }}
+        />
       </InfoBox>
     </div>
   );
@@ -317,6 +335,8 @@ const styles = {
     justifyContent: 'center',
     padding: '1rem',
     userSelect: 'none',
+    overflowX: 'auto',
+    minWidth: 'min-content',
   },
   label: {
     fontSize: 12,

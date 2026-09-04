@@ -34,6 +34,7 @@ function getBgCanvas() {
 function drawCell(ctx, row, col, color, alpha = 1) {
   const x = col * CS;
   const y = row * CS;
+  ctx.save();
   ctx.globalAlpha = alpha;
   ctx.fillStyle = color;
   ctx.fillRect(x + 1, y + 1, CS - 2, CS - 2);
@@ -44,21 +45,20 @@ function drawCell(ctx, row, col, color, alpha = 1) {
   // Bottom shadow
   ctx.fillStyle = 'rgba(0,0,0,0.28)';
   ctx.fillRect(x + 1, y + CS - 5, CS - 2, 4);
-  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 // ─── Main board render ────────────────────────────────────────────────────────
 
 export function renderBoard(ctx, state, options = {}) {
-  const { showGhost = true, dimmed = false } = options;
+  const { showGhost = true } = options;
   const { board, piece, onGround, lockTimer, pendingGarbage } = state;
+
+  // Reset alpha — guard against leaks from ghost/lock-flash of prior frames
+  ctx.globalAlpha = 1;
 
   // Background
   ctx.drawImage(getBgCanvas(), 0, 0);
-  if (dimmed) {
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(0, 0, W, H);
-  }
 
   // Board cells (visible rows only)
   for (let r = BUFFER; r < TOTAL_ROWS; r++) {
@@ -121,6 +121,7 @@ export function renderBoard(ctx, state, options = {}) {
 // ─── Opponent board (simpler, no ghost, no input) ─────────────────────────────
 
 export function renderOpponentBoard(ctx, boardData, pendingGarbage = 0) {
+  ctx.globalAlpha = 1;
   ctx.drawImage(getBgCanvas(), 0, 0);
 
   for (let r = BUFFER; r < TOTAL_ROWS; r++) {
@@ -149,7 +150,7 @@ export function renderMiniPiece(ctx, canvasWidth, canvasHeight, type, offsetY, d
   const S = 20;
   const padX = Math.floor((canvasWidth - (4 * S)) / 2);
 
-  ctx.globalAlpha = dimmed ? 0.3 : 1;
+  ctx.globalAlpha = 1;
   for (const [dr, dc] of cells) {
     const x = padX + (dc - minC) * S;
     const y = offsetY + (dr - minR) * S;
@@ -177,7 +178,7 @@ export function renderHoldPiece(ctx, holdType, holdUsed) {
   ctx.clearRect(0, 0, cw, ctx.canvas.height);
   ctx.fillStyle = '#080814';
   ctx.fillRect(0, 0, cw, ctx.canvas.height);
-  if (holdType) renderMiniPiece(ctx, cw, 60, holdType, 8, holdUsed);
+  if (holdType) renderMiniPiece(ctx, cw, 60, holdType, 8);
 }
 
 // ─── Invalidate bg cache (call if CELL_SIZE changes) ─────────────────────────
