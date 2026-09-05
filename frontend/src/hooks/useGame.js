@@ -50,29 +50,8 @@ export function useGame() {
       return;
     }
 
-    if (mode === 'pvai' && (params.difficulty === 'hard' || params.difficulty === 'expert')) {
-      // Lazy-load ONNX controller
-      setModeParams({ ...params, aiController: null, loading: true });
-      setScreen('game');
-      try {
-        const { createAIController } = await import('../ai/aiController.js');
-        const aiController = await createAIController(params.difficulty);
-        setModeParams(prev => ({ ...prev, aiController, loading: false }));
-      } catch (err) {
-        // createAIController already attempts its own meta fallback internally.
-        // This outer catch handles any remaining unexpected failure.
-        const metaFallback = params.difficulty === 'hard' ? 'meta-hard' : 'meta-expert';
-        console.warn(`[useGame] AI load failed, falling back to ${metaFallback}:`, err);
-        showToast(`AI model unavailable, using ${metaFallback} instead`, false);
-        const { createAIController } = await import('../ai/aiController.js');
-        const aiController = await createAIController(metaFallback);
-        setModeParams(prev => ({ ...prev, aiController, difficulty: metaFallback, loading: false }));
-      }
-      return;
-    }
-
     if (mode === 'pvai') {
-      // Heuristic AI – synchronous
+      // All AI levels are heuristic — no network needed, instantiate immediately
       const { createAIController } = await import('../ai/aiController.js');
       const aiController = await createAIController(params.difficulty);
       setModeParams({ ...params, aiController });

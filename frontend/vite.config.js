@@ -7,7 +7,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'onnx':   ['onnxruntime-web'],
           'socket': ['socket.io-client'],
         },
       },
@@ -21,8 +20,5 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
-  },
-  optimizeDeps: {
-    exclude: ['onnxruntime-web'],
   },
 });
