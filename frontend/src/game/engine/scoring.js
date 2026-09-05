@@ -103,7 +103,9 @@ export function calcGarbageSent(linesCleared, tspinType, combo, allClear) {
     else if (linesCleared === 4) garbage = GARBAGE_TABLE.tetris;
   }
 
-  // Combo garbage (independent of line clear type)
+  // Combo garbage — fires whenever a line was cleared (including singles)
+  // combo starts at 0 on the 2nd consecutive clear, so COMBO_GARBAGE[0]=0,
+  // meaningful bonus starts at combo >= 2 (COMBO_GARBAGE[2]=1).
   if (combo >= 1 && linesCleared > 0) {
     const comboIdx = Math.min(combo, COMBO_GARBAGE.length - 1);
     garbage += COMBO_GARBAGE[comboIdx];

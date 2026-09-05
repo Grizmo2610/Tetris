@@ -3,6 +3,7 @@ import { initQueueFromSeed, generateSeed } from '../engine/piece.js';
 import {
   createGameState, applyMove, applyRotation, applySoftDrop,
   applyHardDrop, applyHold, applyGravityTick, applyLockTick, receiveGarbage,
+  enqueueGarbage, counterGarbageQueue, flushGarbageQueue,
 } from '../engine/physics.js';
 import { InputHandler } from '../input/inputHandler.js';
 import { renderBoard, renderNextQueue, renderHoldPiece } from '../renderer/boardRenderer.js';
@@ -118,8 +119,7 @@ export class LocalPvpMode {
 
     const dt = this.lastTime ? Math.min(ts - this.lastTime, 100) : 0;
     this.lastTime = ts;
-
-    const garbagePending = [0, 0];
+    const nowMs = performance.now();
 
     // ── Tick each player that is still alive ──────────────────────────────
     for (let i = 0; i < 2; i++) {
@@ -143,19 +143,38 @@ export class LocalPvpMode {
       s = applyGravityTick(s, dt);
       if (s.onGround) s = applyLockTick(s, dt);
 
-      const garbage = s._garbageSent ?? 0;
-      if (garbage > 0) {
-        garbagePending[1 - i] += garbage;
-        s = { ...s, _garbageSent: 0 };
+      // If a piece just locked, handle garbage queue
+      if (s._garbageSent !== undefined) {
+        const sent = s._garbageSent ?? 0;
+        const cleared = s._linesCleared ?? 0;
+        const opp = 1 - i;
+
+        // Enqueue outgoing garbage (5-second delay)
+        if (sent > 0) {
+          s = { ...s, garbageQueue: enqueueGarbage(s.garbageQueue ?? [], sent, nowMs) };
+        }
+
+        // Counter: this player's clears cancel opponent's pending outgoing garbage
+        if (cleared > 0 && this.states[opp]) {
+          const oppQueue = counterGarbageQueue(this.states[opp].garbageQueue ?? [], cleared);
+          this.states[opp] = { ...this.states[opp], garbageQueue: oppQueue };
+        }
+
+        s = { ...s, _garbageSent: undefined, _linesCleared: undefined };
       }
 
       this.states[i] = s;
     }
 
-    // ── Apply garbage only to alive players ───────────────────────────────
+    // ── Flush matured garbage from each player's queue to the opponent ─────
     for (let i = 0; i < 2; i++) {
-      if (garbagePending[i] > 0 && this.states[i]?.status === 'playing') {
-        this.states[i] = receiveGarbage(this.states[i], garbagePending[i]);
+      const s = this.states[i];
+      if (!s || !s.garbageQueue?.length) continue;
+      const { flushed, queue } = flushGarbageQueue(s.garbageQueue, nowMs);
+      this.states[i] = { ...s, garbageQueue: queue };
+      const opp = 1 - i;
+      if (flushed > 0 && this.states[opp]?.status === 'playing') {
+        this.states[opp] = receiveGarbage(this.states[opp], flushed);
       }
     }
 

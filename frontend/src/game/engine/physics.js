@@ -1,4 +1,4 @@
-import { GRAVITY_TABLE, LOCK_DELAY_MS, LOCK_MOVE_LIMIT, BUFFER } from '../../utils/constants.js';
+import { GRAVITY_TABLE, LOCK_DELAY_MS, LOCK_MOVE_LIMIT, BUFFER, GARBAGE_DELAY_MS } from '../../utils/constants.js';
 import { PIECES, isValidPosition, ghostRow, getKicks, spawnPiece, dequeue } from './piece.js';
 import { lockPieceOnBoard, clearLines, isAllClear, isTopOut, applyGarbage } from './board.js';
 import {
@@ -30,6 +30,9 @@ export function createGameState(queue) {
     level: 1,
     combo: -1,
     pendingGarbage: 0,
+    // garbageQueue: array of { amount, readyAt } — garbage waiting to be sent
+    // after the 5-second delay. Managed by the mode orchestrator.
+    garbageQueue: [],
     gravityTimer: 0,
     lockTimer: 0,
     lockMoves: 0,
@@ -257,6 +260,54 @@ export function applyLockTick(state, dt) {
 }
 
 // --- Receive garbage from opponent ---
+// Immediately reduces the sender's outgoing garbage queue (counter mechanic).
+// Whatever cannot be countered is added to pendingGarbage (applied on next spawn).
+// linesToCounter: how many lines THIS player just cleared (for counter mechanic).
 export function receiveGarbage(state, lines) {
   return { ...state, pendingGarbage: state.pendingGarbage + lines };
+}
+
+// ─── Garbage queue helpers (used by mode orchestrators) ──────────────────────
+
+// Enqueue outgoing garbage with a delay timestamp.
+// Called right after applyLock returns _garbageSent > 0.
+export function enqueueGarbage(garbageQueue, amount, nowMs) {
+  if (amount <= 0) return garbageQueue;
+  return [...garbageQueue, { amount, readyAt: nowMs + GARBAGE_DELAY_MS }];
+}
+
+// Counter: when a player clears lines, cancel up to `linesCleared` garbage
+// from the OLDEST entries in their outgoing queue.
+// Returns the new queue after cancellation.
+export function counterGarbageQueue(garbageQueue, linesCleared) {
+  if (linesCleared <= 0 || !garbageQueue.length) return garbageQueue;
+  let toCancel = linesCleared;
+  const newQueue = [];
+  for (const entry of garbageQueue) {
+    if (toCancel <= 0) {
+      newQueue.push(entry);
+    } else if (entry.amount <= toCancel) {
+      toCancel -= entry.amount;
+      // entry fully cancelled, drop it
+    } else {
+      newQueue.push({ ...entry, amount: entry.amount - toCancel });
+      toCancel = 0;
+    }
+  }
+  return newQueue;
+}
+
+// Flush all entries whose readyAt <= nowMs.
+// Returns { flushed: number, queue: remaining }.
+export function flushGarbageQueue(garbageQueue, nowMs) {
+  let flushed = 0;
+  const remaining = [];
+  for (const entry of garbageQueue) {
+    if (entry.readyAt <= nowMs) {
+      flushed += entry.amount;
+    } else {
+      remaining.push(entry);
+    }
+  }
+  return { flushed, queue: remaining };
 }

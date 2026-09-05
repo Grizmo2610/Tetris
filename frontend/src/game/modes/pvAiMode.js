@@ -3,6 +3,7 @@ import { initQueueFromSeed, generateSeed } from '../engine/piece.js';
 import {
   createGameState, applyMove, applyRotation, applySoftDrop,
   applyHardDrop, applyHold, applyGravityTick, applyLockTick, receiveGarbage,
+  enqueueGarbage, counterGarbageQueue, flushGarbageQueue,
 } from '../engine/physics.js';
 import { InputHandler } from '../input/inputHandler.js';
 import { renderBoard, renderNextQueue, renderHoldPiece } from '../renderer/boardRenderer.js';
@@ -97,6 +98,7 @@ export class PvAiMode {
 
     const dt = this.lastTime ? Math.min(ts - this.lastTime, 100) : 0;
     this.lastTime = ts;
+    const nowMs = performance.now();
 
     let ps = this.playerState;
     let as = this.aiState;
@@ -119,12 +121,18 @@ export class PvAiMode {
       ps = applyGravityTick(ps, dt);
       if (ps.onGround) ps = applyLockTick(ps, dt);
 
-      const playerGarbage = ps._garbageSent ?? 0;
-      if (playerGarbage > 0 && as.status === 'playing') {
-        as = receiveGarbage(as, playerGarbage);
-        ps = { ...ps, _garbageSent: 0 };
-      } else if (playerGarbage > 0) {
-        ps = { ...ps, _garbageSent: 0 };
+      if (ps._garbageSent !== undefined) {
+        const sent = ps._garbageSent ?? 0;
+        const cleared = ps._linesCleared ?? 0;
+        // Enqueue outgoing garbage with 5-second delay
+        if (sent > 0) {
+          ps = { ...ps, garbageQueue: enqueueGarbage(ps.garbageQueue ?? [], sent, nowMs) };
+        }
+        // Counter: player clears cancel AI's pending outgoing garbage
+        if (cleared > 0) {
+          as = { ...as, garbageQueue: counterGarbageQueue(as.garbageQueue ?? [], cleared) };
+        }
+        ps = { ...ps, _garbageSent: undefined, _linesCleared: undefined };
       }
     }
 
@@ -147,26 +155,37 @@ export class PvAiMode {
           if (action === 'rotateCW') as = applyRotation(as, 1);
         } else if (this.aiMovesLeft.length === 0) {
           as = applyHardDrop(as);
-          const aiGarbage = as._garbageSent ?? 0;
-          if (aiGarbage > 0 && ps.status === 'playing') {
-            ps = receiveGarbage(ps, aiGarbage);
-            as = { ...as, _garbageSent: 0 };
-          } else if (aiGarbage > 0) {
-            as = { ...as, _garbageSent: 0 };
-          }
           this.aiTargetPlacement = null;
           this.aiThinkTimer = 0;
         }
-
         as = applyGravityTick(as, dt);
-        const aiGravGarbage = as._garbageSent ?? 0;
-        if (aiGravGarbage > 0 && ps.status === 'playing') {
-          ps = receiveGarbage(ps, aiGravGarbage);
-          as = { ...as, _garbageSent: 0 };
-        } else if (aiGravGarbage > 0) {
-          as = { ...as, _garbageSent: 0 };
-        }
       }
+
+      if (as._garbageSent !== undefined) {
+        const sent = as._garbageSent ?? 0;
+        const cleared = as._linesCleared ?? 0;
+        // Enqueue AI's outgoing garbage with 5-second delay
+        if (sent > 0) {
+          as = { ...as, garbageQueue: enqueueGarbage(as.garbageQueue ?? [], sent, nowMs) };
+        }
+        // Counter: AI clears cancel player's pending outgoing garbage
+        if (cleared > 0) {
+          ps = { ...ps, garbageQueue: counterGarbageQueue(ps.garbageQueue ?? [], cleared) };
+        }
+        as = { ...as, _garbageSent: undefined, _linesCleared: undefined };
+      }
+    }
+
+    // ── Flush matured garbage from each side's queue to the opponent ──────
+    if (ps.garbageQueue?.length) {
+      const { flushed, queue } = flushGarbageQueue(ps.garbageQueue, nowMs);
+      ps = { ...ps, garbageQueue: queue };
+      if (flushed > 0 && as.status === 'playing') as = receiveGarbage(as, flushed);
+    }
+    if (as.garbageQueue?.length) {
+      const { flushed, queue } = flushGarbageQueue(as.garbageQueue, nowMs);
+      as = { ...as, garbageQueue: queue };
+      if (flushed > 0 && ps.status === 'playing') ps = receiveGarbage(ps, flushed);
     }
 
     this.playerState = ps;

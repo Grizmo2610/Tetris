@@ -3,6 +3,7 @@ import { initQueue } from '../engine/piece.js';
 import {
   createGameState, applyMove, applyRotation, applySoftDrop,
   applyHardDrop, applyHold, applyGravityTick, applyLockTick, receiveGarbage,
+  enqueueGarbage, counterGarbageQueue, flushGarbageQueue,
 } from '../engine/physics.js';
 import { InputHandler } from '../input/inputHandler.js';
 import { renderBoard, renderOpponentBoard, renderNextQueue, renderHoldPiece } from '../renderer/boardRenderer.js';
@@ -83,10 +84,21 @@ export class OnlinePvpMode {
   _attachSocketListeners() {
     const s = this.socket;
 
-    const onOpponentUpdate = ({ board, garbageSent, linesCleared, combo }) => {
+    const onOpponentUpdate = ({ board, linesCleared }) => {
       this.opponentBoard = new Int8Array(board);
-      if (garbageSent > 0) {
-        this.state = receiveGarbage(this.state, garbageSent);
+      // Opponent clearing lines counters our outgoing garbage queue
+      if (linesCleared > 0 && this.state) {
+        this.state = {
+          ...this.state,
+          garbageQueue: counterGarbageQueue(this.state.garbageQueue ?? [], linesCleared),
+        };
+      }
+    };
+
+    // Opponent's 5-second delay expired — apply garbage to our board
+    const onGarbageFlush = ({ amount }) => {
+      if (amount > 0 && this.state?.status === 'playing') {
+        this.state = receiveGarbage(this.state, amount);
       }
     };
 
@@ -112,6 +124,7 @@ export class OnlinePvpMode {
     };
 
     s.on('opponent-update',        onOpponentUpdate);
+    s.on('garbage-flush',          onGarbageFlush);
     s.on('opponent-disconnected',  onOpponentDisconnected);
     s.on('opponent-reconnected',   onOpponentReconnected);
     s.on('opponent-left',          onOpponentLeft);
@@ -119,6 +132,7 @@ export class OnlinePvpMode {
 
     this._socketListeners = {
       'opponent-update':       onOpponentUpdate,
+      'garbage-flush':         onGarbageFlush,
       'opponent-disconnected': onOpponentDisconnected,
       'opponent-reconnected':  onOpponentReconnected,
       'opponent-left':         onOpponentLeft,
@@ -145,11 +159,11 @@ export class OnlinePvpMode {
     return flat;
   }
 
-  _emitUpdate(state) {
+  _emitUpdate(state, garbageFlushed = 0) {
     const board = this._serializeBoard(state.board);
     this.socket.emit('game-update', {
       board,
-      garbageSent:  state._garbageSent  ?? 0,
+      garbageSent:  garbageFlushed,
       linesCleared: state._linesCleared ?? 0,
       combo:        state.combo,
     });
@@ -162,6 +176,7 @@ export class OnlinePvpMode {
 
     const dt = this.lastTime ? Math.min(ts - this.lastTime, 100) : 0;
     this.lastTime = ts;
+    const nowMs = performance.now();
 
     let s = this.state;
     if (!s || s.status !== 'playing') return;
@@ -183,10 +198,25 @@ export class OnlinePvpMode {
     s = applyGravityTick(s, dt);
     if (s.onGround) s = applyLockTick(s, dt);
 
-    // Emit to server when a piece locked (_garbageSent is set by applyLock)
+    // On piece lock: enqueue outgoing garbage with 5-second delay, emit board
     if (s._garbageSent !== undefined) {
-      this._emitUpdate(s);
+      const sent = s._garbageSent ?? 0;
+      if (sent > 0) {
+        s = { ...s, garbageQueue: enqueueGarbage(s.garbageQueue ?? [], sent, nowMs) };
+      }
+      // Emit board state immediately (garbageSent=0; real garbage fires on flush)
+      this._emitUpdate(s, 0);
       s = { ...s, _garbageSent: undefined, _linesCleared: undefined, _tspinType: undefined };
+    }
+
+    // Flush matured garbage: emit to server so opponent receives it
+    if (s.garbageQueue?.length) {
+      const { flushed, queue } = flushGarbageQueue(s.garbageQueue, nowMs);
+      s = { ...s, garbageQueue: queue };
+      if (flushed > 0) {
+        // Emit a dedicated garbage flush event so opponent applies it
+        this.socket.emit('garbage-flush', { amount: flushed });
+      }
     }
 
     this.state = s;

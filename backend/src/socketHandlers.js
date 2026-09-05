@@ -14,7 +14,6 @@ function validateGameUpdate(data) {
     Array.isArray(data.board) &&
     data.board.length === 200 &&
     data.board.every(v => Number.isInteger(v) && v >= 0 && v <= 8) &&
-    Number.isInteger(data.garbageSent)  && data.garbageSent  >= 0 &&
     Number.isInteger(data.linesCleared) && data.linesCleared >= 0 && data.linesCleared <= 4
   );
 }
@@ -124,10 +123,23 @@ function registerHandlers(io, socket) {
     if (opponent?.connected) {
       io.to(opponent.socketId).emit('opponent-update', {
         board:        data.board,
-        garbageSent:  data.garbageSent,
         linesCleared: data.linesCleared,
         combo:        data.combo ?? -1,
       });
+    }
+  });
+
+  // ── garbage-flush (client's 5-second delay expired, send to opponent) ──────
+
+  socket.on('garbage-flush', ({ amount } = {}) => {
+    if (!Number.isInteger(amount) || amount <= 0) return;
+
+    const room = rm.findRoomBySocketId(socket.id);
+    if (!room || room.status !== 'in-game') return;
+
+    const opponent = rm.getOpponent(room, socket.id);
+    if (opponent?.connected) {
+      io.to(opponent.socketId).emit('garbage-flush', { amount });
     }
   });
 
