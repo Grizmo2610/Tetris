@@ -38,18 +38,18 @@ class SocketClient {
 
     this._socket.on('connect', () => {
       this._connected = true;
-      // Store socket ID for reconnect identification
-      localStorage.setItem(STORAGE_KEY_SOCKET_ID, this._socket.id);
 
-      // If we have room data in localStorage, attempt reconnect
+      // Read previous socket ID BEFORE overwriting with new one
       const prevSocketId = localStorage.getItem(STORAGE_KEY_SOCKET_ID);
       const roomCode     = localStorage.getItem(STORAGE_KEY_ROOM_CODE);
       const nickname     = localStorage.getItem(STORAGE_KEY_NICKNAME);
 
+      // Always update stored socket ID to current
+      localStorage.setItem(STORAGE_KEY_SOCKET_ID, this._socket.id);
+
+      // Attempt reconnect only if we have a different previous socket ID
       if (roomCode && nickname && prevSocketId && prevSocketId !== this._socket.id) {
         this._socket.emit('reconnect-room', { roomCode, nickname, previousSocketId: prevSocketId });
-        // Update stored socket ID
-        localStorage.setItem(STORAGE_KEY_SOCKET_ID, this._socket.id);
       }
     });
 

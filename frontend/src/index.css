@@ -21,8 +21,12 @@
   padding: 0;
 }
 
-html, body, #root {
+html {
   height: 100%;
+}
+
+body, #root {
+  min-height: 100%;
 }
 
 body {
@@ -30,6 +34,7 @@ body {
   color: var(--text-primary);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  overflow-y: auto;
 }
 
 /* ─── Scrollbar ──────────────────────────────────────────────────────────────── */

@@ -1,55 +1,67 @@
-// CreateRoom.jsx — shown after "Create Room" while waiting for opponent
+// RoomScreens.jsx — lobby screens for Online PvP
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { socketClient } from '../../network/socketClient.js';
+
+// ─── CreateRoom ───────────────────────────────────────────────────────────────
 
 export function CreateRoom({ nickname, onRoomReady, onCancel }) {
   const [code, setCode] = useState(null);
   const [error, setError] = useState(null);
-  const [waiting, setWaiting] = useState(true);
+  // Use a ref to guard against calling onRoomReady after unmount
+  const mountedRef = useRef(true);
 
   useEffect(() => {
+    mountedRef.current = true;
+
     socketClient.connect();
 
-    socketClient.once('room-created', ({ code }) => {
+    const onRoomCreated = ({ code }) => {
+      if (!mountedRef.current) return;
       setCode(code);
       socketClient.setRoomCode(code);
-    });
+    };
 
-    socketClient.once('room-joined', ({ opponentNickname, roomCode }) => {
-      setWaiting(false);
+    const onRoomJoined = ({ opponentNickname, roomCode }) => {
+      if (!mountedRef.current) return;
       onRoomReady({ roomCode, opponentNickname });
-    });
+    };
 
-    socketClient.once('room-error', ({ message }) => {
+    const onRoomError = ({ message }) => {
+      if (!mountedRef.current) return;
       setError(message);
-    });
+    };
+
+    socketClient.on('room-created', onRoomCreated);
+    socketClient.on('room-joined',  onRoomJoined);
+    socketClient.on('room-error',   onRoomError);
 
     socketClient.createRoom(nickname);
 
     return () => {
-      socketClient.off('room-created');
-      socketClient.off('room-joined');
-      socketClient.off('room-error');
+      mountedRef.current = false;
+      socketClient.off('room-created', onRoomCreated);
+      socketClient.off('room-joined',  onRoomJoined);
+      socketClient.off('room-error',   onRoomError);
     };
   }, [nickname, onRoomReady]);
 
   return (
     <div style={styles.root}>
-      <div style={styles.title}>Waiting for opponent…</div>
+      <div style={styles.title}>Đang chờ đối thủ…</div>
 
       {code && (
         <>
-          <div style={styles.label}>Share this room code:</div>
+          <div style={styles.label}>Chia sẻ mã phòng cho bạn:</div>
           <div style={styles.code}>{code}</div>
-          <div style={styles.hint}>Your friend enters this code to join</div>
+          <div style={styles.hint}>Bạn nhập mã này để tham gia</div>
         </>
       )}
 
       {error && <div style={styles.error}>{error}</div>}
 
       <button style={styles.cancelBtn} onClick={() => { socketClient.leaveRoom(); onCancel(); }}>
-        Cancel
+        Huỷ
       </button>
     </div>
   );
@@ -60,37 +72,46 @@ export function CreateRoom({ nickname, onRoomReady, onCancel }) {
 export function JoinRoom({ nickname, roomCode, onRoomReady, onCancel }) {
   const [error, setError] = useState(null);
   const [joining, setJoining] = useState(true);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
+    mountedRef.current = true;
+
     socketClient.connect();
 
-    socketClient.once('room-joined', ({ opponentNickname, roomCode: rc }) => {
+    const onRoomJoined = ({ opponentNickname, roomCode: rc }) => {
+      if (!mountedRef.current) return;
       setJoining(false);
       socketClient.setRoomCode(rc);
       onRoomReady({ roomCode: rc, opponentNickname });
-    });
+    };
 
-    socketClient.once('room-error', ({ message, code }) => {
+    const onRoomError = ({ message }) => {
+      if (!mountedRef.current) return;
       setError(message);
       setJoining(false);
-    });
+    };
+
+    socketClient.on('room-joined', onRoomJoined);
+    socketClient.on('room-error',  onRoomError);
 
     socketClient.joinRoom(roomCode, nickname);
 
     return () => {
-      socketClient.off('room-joined');
-      socketClient.off('room-error');
+      mountedRef.current = false;
+      socketClient.off('room-joined', onRoomJoined);
+      socketClient.off('room-error',  onRoomError);
     };
   }, [nickname, roomCode, onRoomReady]);
 
   return (
     <div style={styles.root}>
       <div style={styles.title}>
-        {joining ? `Joining room ${roomCode}…` : 'Connected!'}
+        {joining ? `Đang vào phòng ${roomCode}…` : 'Đã kết nối!'}
       </div>
       {error && <div style={styles.error}>{error}</div>}
       {error && (
-        <button style={styles.cancelBtn} onClick={onCancel}>Back</button>
+        <button style={styles.cancelBtn} onClick={onCancel}>Quay lại</button>
       )}
     </div>
   );
