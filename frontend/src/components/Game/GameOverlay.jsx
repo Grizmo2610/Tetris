@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { replayStorage } from '../../replay/replayStorage.js';
 
-export default function GameOverlay({ result, mode, onRematch, onExit }) {
+export default function GameOverlay({ result, mode, onRematch, onExit, onWatchReplay }) {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const hasReplay = replayStorage.has();
 
   const isWin = result?.winner === 'player' || result?.winner === true;
   const isOnline = mode === 'onlinePvp';
@@ -37,6 +39,12 @@ export default function GameOverlay({ result, mode, onRematch, onExit }) {
           <Btn onClick={onRematch}>
             {isOnline ? 'Rematch' : 'Play Again'}
           </Btn>
+          {hasReplay && (
+            <Btn onClick={onWatchReplay}>Watch Replay</Btn>
+          )}
+          {hasReplay && (
+            <Btn secondary onClick={() => replayStorage.download()}>Download Replay</Btn>
+          )}
           <Btn secondary onClick={onExit}>Main Menu</Btn>
         </div>
       </div>

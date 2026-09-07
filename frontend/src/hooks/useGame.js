@@ -1,22 +1,17 @@
 import { useState, useCallback, useRef } from 'react';
 import { submitScore } from './useLeaderboard.js';
 import { socketClient } from '../network/socketClient.js';
+import { replayStorage } from '../replay/replayStorage.js';
 
-// ─── useGame ──────────────────────────────────────────────────────────────────
+// # useGame
 // Manages top-level game flow: screen transitions, score submission, rematch.
-//
-// Returns:
-//   screen         — 'menu' | 'lobby' | 'game' | 'leaderboard'
-//   gameProps      — props to pass to GameScreen
-//   goToMenu()
-//   goToLeaderboard()
-//   startGame(mode, params)
 
 export function useGame() {
-  const [screen,    setScreen]    = useState('menu');
+  const [screen,     setScreen]     = useState('menu');
   const [activeMode, setActiveMode] = useState(null);
   const [modeParams, setModeParams] = useState({});
-  const [toast,     setToast]     = useState(null);   // { msg, ok }
+  const [toast,      setToast]      = useState(null);
+  const [replayData, setReplayData] = useState(null);
   const toastTimer = useRef(null);
 
   const showToast = useCallback((msg, ok = true) => {
@@ -25,7 +20,7 @@ export function useGame() {
     toastTimer.current = setTimeout(() => setToast(null), 3500);
   }, []);
 
-  // ─── Navigation ─────────────────────────────────────────────────────────────
+  // # Navigation
 
   const goToMenu = useCallback(() => {
     socketClient.disconnect();
@@ -38,20 +33,36 @@ export function useGame() {
     setScreen('leaderboard');
   }, []);
 
-  // ─── Start game ─────────────────────────────────────────────────────────────
+  const goToReplay = useCallback(() => {
+    const data = replayStorage.get();
+    if (!data) return;
+    setReplayData(data);
+    setScreen('replay');
+  }, []);
+
+  const importReplay = useCallback(async (file) => {
+    try {
+      const data = await replayStorage.loadFile(file);
+      setReplayData(data);
+      setScreen('replay');
+    } catch (err) {
+      showToast(err.message ?? 'Invalid replay file', false);
+    }
+  }, [showToast]);
+
+  // # Start game
 
   const startGame = useCallback(async (mode, params) => {
+    replayStorage.clear();
     setActiveMode(mode);
 
     if (mode === 'onlinePvp') {
-      // Need to go through lobby first (create/join room)
       setModeParams(params);
       setScreen('lobby');
       return;
     }
 
     if (mode === 'pvai') {
-      // All AI levels are heuristic — no network needed, instantiate immediately
       const { createAIController } = await import('../ai/aiController.js');
       const aiController = await createAIController(params.difficulty);
       setModeParams({ ...params, aiController });
@@ -63,14 +74,14 @@ export function useGame() {
     setScreen('game');
   }, [showToast]);
 
-  // ─── Called when lobby is ready (online PvP) ─────────────────────────────────
+  // # Called when lobby is ready (online PvP)
 
   const onLobbyReady = useCallback(({ roomCode, opponentNickname }) => {
     setModeParams(prev => ({ ...prev, roomCode, opponentNickname, socket: socketClient }));
     setScreen('game');
   }, []);
 
-  // ─── Game over callback ──────────────────────────────────────────────────────
+  // # Game over callback
 
   const onGameOver = useCallback(async (result) => {
     const { nickname, difficulty } = modeParams;
@@ -104,8 +115,11 @@ export function useGame() {
     activeMode,
     modeParams,
     toast,
+    replayData,
     goToMenu,
     goToLeaderboard,
+    goToReplay,
+    importReplay,
     startGame,
     onLobbyReady,
     onGameOver,

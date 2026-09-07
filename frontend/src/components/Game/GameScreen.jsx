@@ -13,9 +13,10 @@ const NEXT_H  = 320;  // next canvas height
 // Props:
 //   mode       – 'solo' | 'localPvp' | 'onlinePvp' | 'pvai'
 //   modeParams – extra params passed to the mode constructor
+//   onGameOver – called when game ends (for score submission)
 //   onExit     – called when player chooses to leave
 
-export default function GameScreen({ mode, modeParams = {}, onExit }) {
+export default function GameScreen({ mode, modeParams = {}, onGameOver, onExit, onWatchReplay }) {
   // Player 1 canvas refs
   const mainRef = useRef(null);
   const nextRef = useRef(null);
@@ -95,6 +96,8 @@ export default function GameScreen({ mode, modeParams = {}, onExit }) {
       onGameOver: (result) => {
         setPaused(false);
         setGameOver(result);
+        // Call parent callback for score submission
+        onGameOver?.(result);
       },
     };
 
@@ -118,7 +121,7 @@ export default function GameScreen({ mode, modeParams = {}, onExit }) {
     const instance = new ModeClass(modeArgs);
     modeInstanceRef.current = instance;
     instance.start();
-  }, [mode, modeParams, needsSecondBoard]);
+  }, [mode, modeParams, needsSecondBoard, onGameOver]);
 
   // Run countdown then start
   useEffect(() => {
@@ -210,6 +213,7 @@ export default function GameScreen({ mode, modeParams = {}, onExit }) {
           mode={mode}
           onRematch={handleRematch}
           onExit={onExit}
+          onWatchReplay={onWatchReplay}
         />
       )}
 
@@ -333,10 +337,13 @@ const styles = {
     gap: 24,
     alignItems: 'flex-start',
     justifyContent: 'center',
-    padding: '1rem',
+    padding: '2rem 1rem 1rem',   // extra top padding so buffer zone pieces are visible
     userSelect: 'none',
     overflowX: 'auto',
+    overflowY: 'auto',
     minWidth: 'min-content',
+    minHeight: '100vh',
+    boxSizing: 'border-box',
   },
   label: {
     fontSize: 12,

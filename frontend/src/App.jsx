@@ -4,6 +4,7 @@ import MainMenu from './components/Menu/MainMenu.jsx';
 import GameScreen from './components/Game/GameScreen.jsx';
 import LeaderboardScreen from './components/Leaderboard/LeaderboardScreen.jsx';
 import { CreateRoom, JoinRoom } from './components/Room/RoomScreens.jsx';
+import ReplayViewer from './components/Replay/ReplayViewer.jsx';
 
 // ─── Keep-alive ping (prevents Render free tier sleep) ─────────────────────────
 
@@ -28,8 +29,11 @@ export default function App() {
     activeMode,
     modeParams,
     toast,
+    replayData,
     goToMenu,
     goToLeaderboard,
+    goToReplay,
+    importReplay,
     startGame,
     onLobbyReady,
     onGameOver,
@@ -41,6 +45,7 @@ export default function App() {
         <MainMenu
           onStartGame={startGame}
           onLeaderboard={goToLeaderboard}
+          onImportReplay={importReplay}
         />
       )}
 
@@ -62,7 +67,12 @@ export default function App() {
           modeParams={modeParams}
           onGameOver={onGameOver}
           onExit={goToMenu}
+          onWatchReplay={goToReplay}
         />
+      )}
+
+      {screen === 'replay' && replayData && (
+        <ReplayViewer replayData={replayData} onExit={goToMenu} />
       )}
 
       {toast && <Toast msg={toast.msg} ok={toast.ok} />}
