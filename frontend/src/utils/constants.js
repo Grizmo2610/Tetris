@@ -74,7 +74,7 @@ export const COMBO_GARBAGE = [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 4, 4, 4]; // 12+ = 4
 // clear lines to reduce the incoming amount (1 line cleared = 1 garbage cancelled).
 export const GARBAGE_DELAY_MS = 5000;
 
-// ─── Disconnect timer ─────────────────────────────────────────────────────────
+// # Disconnect timer
 export const DISCONNECT_TIMEOUT_MS = 30_000;
 
 // ─── AI timing ────────────────────────────────────────────────────────────────
