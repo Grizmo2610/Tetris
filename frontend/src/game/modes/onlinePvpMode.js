@@ -1,5 +1,7 @@
 import { emptyBoard } from '../engine/board.js';
-import { initQueue } from '../engine/piece.js';
+import { initQueueFromSeed, generateSeed } from '../engine/piece.js';
+import { ReplayRecorder } from '../../replay/replayRecorder.js';
+import { buildReplayData, replayStorage } from '../../replay/replayStorage.js';
 import {
   createGameState, applyMove, applyRotation, applySoftDrop,
   applyHardDrop, applyHold, applyGravityTick, applyLockTick, receiveGarbage,
@@ -39,17 +41,27 @@ export class OnlinePvpMode {
     this.lastTime = null;
     this.over     = false;
     this.paused   = false;
+    this._recorder  = null;
+    this._startTs   = null;
     this._loop = this._loop.bind(this);
     this._socketListeners = {};
   }
 
   start() {
-    const queue = initQueue();
+    const seed = generateSeed();
+    const queue = initQueueFromSeed(seed);
     const base  = createGameState(queue);
     this.state         = { ...base, board: emptyBoard() };
     this.opponentBoard = new Int8Array(COLS * ROWS);
     this.over   = false;
     this.paused = false;
+    this._startTs = performance.now();
+
+    this._recorder = new ReplayRecorder({ seed, startLevel: 1 });
+    this._recorder.start();
+    this._recorder.forceKeyframe(this.state);
+    this._opponentBoardTimeline = [];
+
     this.input.attach();
     this._attachSocketListeners();
     this.lastTime = null;
@@ -86,6 +98,7 @@ export class OnlinePvpMode {
 
     const onOpponentUpdate = ({ board, linesCleared }) => {
       this.opponentBoard = new Int8Array(board);
+      this._opponentBoardTimeline?.push({ t: Math.round(performance.now() - this._startTs), board: Array.from(board) });
       // Opponent clearing lines counters our outgoing garbage queue
       if (linesCleared > 0 && this.state) {
         this.state = {
@@ -98,6 +111,7 @@ export class OnlinePvpMode {
     // Opponent's 5-second delay expired — apply garbage to our board
     const onGarbageFlush = ({ amount }) => {
       if (amount > 0 && this.state?.status === 'playing') {
+        this._recorder?.recordGarbageReceived(amount);
         this.state = receiveGarbage(this.state, amount);
       }
     };
@@ -120,6 +134,24 @@ export class OnlinePvpMode {
       this.over = true;
       cancelAnimationFrame(this.raf);
       const st = this.state;
+      if (this._recorder) {
+        const durationMs = Math.round(performance.now() - this._startTs);
+        const p1Block = this._recorder.finish({
+          nickname: 'Player',
+          score: st.score, lines: st.lines, level: st.level,
+        });
+        replayStorage.set(buildReplayData({
+          mode: 'onlinePvp',
+          winner: winner ?? null,
+          p1Block,
+          p2Block: this._opponentBoardTimeline?.length
+            ? { boardTimeline: this._opponentBoardTimeline, meta: { nickname: 'Opponent' } }
+            : null,
+          durationMs,
+        }));
+        this._recorder = null;
+        this._opponentBoardTimeline = null;
+      }
       this.onGameOver({ winner, loser, reason, score: st.score, lines: st.lines, level: st.level });
     };
 
@@ -183,20 +215,26 @@ export class OnlinePvpMode {
 
     const actions = this.input.update(dt);
     for (const action of actions) {
+      const pieceBeforeInput = s.piece;
       switch (action) {
-        case 'moveLeft':   s = applyMove(s, -1);                             break;
-        case 'moveRight':  s = applyMove(s, 1);                              break;
-        case 'softDrop':   s = applySoftDrop(s);                              break;
-        case 'hardDrop':   s = applyHardDrop(s);                              break;
-        case 'rotateCW':   s = applyRotation(s, 1);                           break;
-        case 'rotateCCW':  s = applyRotation(s, -1);                          break;
-        case 'rotate180':  s = applyRotation(applyRotation(s, 1), 1);         break;
-        case 'hold':       s = applyHold(s);                                  break;
+        case 'moveLeft':   this._recorder?.recordInput(action); s = applyMove(s, -1);                             break;
+        case 'moveRight':  this._recorder?.recordInput(action); s = applyMove(s, 1);                              break;
+        case 'softDrop':   this._recorder?.recordInput(action); s = applySoftDrop(s);                              break;
+        case 'hardDrop':   this._recorder?.recordInput(action); s = applyHardDrop(s);                              break;
+        case 'rotateCW':   this._recorder?.recordInput(action); s = applyRotation(s, 1);                           break;
+        case 'rotateCCW':  this._recorder?.recordInput(action); s = applyRotation(s, -1);                          break;
+        case 'rotate180':  this._recorder?.recordInput(action); s = applyRotation(applyRotation(s, 1), 1);         break;
+        case 'hold':       this._recorder?.recordInput(action); s = applyHold(s);                                  break;
+      }
+      if (action === 'hardDrop' && s.piece !== pieceBeforeInput) {
+        this._recorder?.recordKeyframe(s);
       }
     }
 
+    const prevPiece = s.piece;
     s = applyGravityTick(s, dt);
     if (s.onGround) s = applyLockTick(s, dt);
+    if (s.piece !== prevPiece) this._recorder?.recordKeyframe(s);
 
     // On piece lock: enqueue outgoing garbage with 5-second delay, emit board
     if (s._garbageSent !== undefined) {
@@ -231,7 +269,16 @@ export class OnlinePvpMode {
 
     if (s.status === 'gameover') {
       this.over = true;
+      cancelAnimationFrame(this.raf);
+      this.raf = null;
       this.socket.emit('game-over', { score: s.score, lines: s.lines, level: s.level });
+      // Note: GameScreen shows game-over overlay when server echoes 'game-over' back.
+      // If server is unreachable, fall back to local game-over after 3s.
+      setTimeout(() => {
+        if (this.over && !this.paused) {
+          this.onGameOver({ reason: 'topout', winner: false, score: s.score, lines: s.lines, level: s.level });
+        }
+      }, 3000);
       return;
     }
 

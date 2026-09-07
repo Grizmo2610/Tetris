@@ -1,11 +1,13 @@
 import { emptyBoard } from '../engine/board.js';
-import { initQueue } from '../engine/piece.js';
+import { initQueueFromSeed, generateSeed } from '../engine/piece.js';
 import {
   createGameState, applyMove, applyRotation, applySoftDrop,
   applyHardDrop, applyHold, applyGravityTick, applyLockTick,
 } from '../engine/physics.js';
 import { InputHandler } from '../input/inputHandler.js';
 import { renderBoard, renderNextQueue, renderHoldPiece } from '../renderer/boardRenderer.js';
+import { ReplayRecorder } from '../../replay/replayRecorder.js';
+import { buildReplayData, replayStorage } from '../../replay/replayStorage.js';
 
 // ─── SoloMode ─────────────────────────────────────────────────────────────────
 // Usage:
@@ -33,15 +35,27 @@ export class SoloMode {
     this.raf      = null;
     this.lastTime = null;
     this.paused   = false;
+    this._seed    = null;
+    this._recorder = null;
+    this._startTs  = null;
+    this._lastKfT  = -Infinity;
     this._loop = this._loop.bind(this);
   }
 
   start() {
-    const queue = initQueue();
+    this._seed = generateSeed();
+    const queue = initQueueFromSeed(this._seed);
     const base  = createGameState(queue);
     this.state    = { ...base, board: emptyBoard() };
     this.paused   = false;
     this.lastTime = null;
+    this._startTs  = performance.now();
+    this._lastKfT  = -Infinity;
+
+    this._recorder = new ReplayRecorder({ seed: this._seed, startLevel: 1 });
+    this._recorder.start();
+    this._recorder.forceKeyframe(this.state);
+
     this.input.attach();
     this.raf = requestAnimationFrame(this._loop);
   }
@@ -76,26 +90,35 @@ export class SoloMode {
     let s = this.state;
     if (!s || s.status !== 'playing') return;
 
-    // Process input — 'pause' action is intentionally NOT handled here;
-    // ESC is caught by GameScreen's keydown listener instead.
+    // Process input
     const actions = this.input.update(dt);
     for (const action of actions) {
+      const pieceBeforeInput = s.piece;
       switch (action) {
-        case 'moveLeft':   s = applyMove(s, -1);                             break;
-        case 'moveRight':  s = applyMove(s, 1);                              break;
-        case 'softDrop':   s = applySoftDrop(s);                              break;
-        case 'hardDrop':   s = applyHardDrop(s);                              break;
-        case 'rotateCW':   s = applyRotation(s, 1);                           break;
-        case 'rotateCCW':  s = applyRotation(s, -1);                          break;
-        case 'rotate180':  s = applyRotation(applyRotation(s, 1), 1);         break;
-        case 'hold':       s = applyHold(s);                                  break;
-        // 'pause' is handled by GameScreen via window keydown → mode.pause()
+        case 'moveLeft':   this._recorder?.recordInput(action); s = applyMove(s, -1);                             break;
+        case 'moveRight':  this._recorder?.recordInput(action); s = applyMove(s, 1);                              break;
+        case 'softDrop':   this._recorder?.recordInput(action); s = applySoftDrop(s);                              break;
+        case 'hardDrop':   this._recorder?.recordInput(action); s = applyHardDrop(s);                              break;
+        case 'rotateCW':   this._recorder?.recordInput(action); s = applyRotation(s, 1);                           break;
+        case 'rotateCCW':  this._recorder?.recordInput(action); s = applyRotation(s, -1);                          break;
+        case 'rotate180':  this._recorder?.recordInput(action); s = applyRotation(applyRotation(s, 1), 1);         break;
+        case 'hold':       this._recorder?.recordInput(action); s = applyHold(s);                                  break;
+      }
+      // Keyframe immediately after hardDrop lock (piece already spawned)
+      if (action === 'hardDrop' && s.piece !== pieceBeforeInput && this._recorder) {
+        this._recorder.recordKeyframe(s);
       }
     }
 
     // Physics
+    const prevPiece = s.piece;
     s = applyGravityTick(s, dt);
     if (s.onGround) s = applyLockTick(s, dt);
+
+    // Keyframe after gravity-triggered lock
+    if (s.piece !== prevPiece && this._recorder) {
+      this._recorder.recordKeyframe(s);
+    }
 
     this.state = s;
 
@@ -107,6 +130,20 @@ export class SoloMode {
 
     if (s.status === 'gameover') {
       this._render(s);
+      if (this._recorder) {
+        const durationMs = Math.round(performance.now() - this._startTs);
+        const p1Block = this._recorder.finish({
+          nickname: this.nickname ?? 'Player',
+          score: s.score, lines: s.lines, level: s.level,
+        });
+        replayStorage.set(buildReplayData({
+          mode: 'solo',
+          winner: null,
+          p1Block,
+          durationMs,
+        }));
+        this._recorder = null;
+      }
       this.onGameOver({ score: s.score, lines: s.lines, level: s.level });
       return;
     }

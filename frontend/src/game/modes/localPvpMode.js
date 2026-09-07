@@ -1,5 +1,7 @@
 import { emptyBoard } from '../engine/board.js';
 import { initQueueFromSeed, generateSeed } from '../engine/piece.js';
+import { ReplayRecorder } from '../../replay/replayRecorder.js';
+import { buildReplayData, replayStorage } from '../../replay/replayStorage.js';
 import {
   createGameState, applyMove, applyRotation, applySoftDrop,
   applyHardDrop, applyHold, applyGravityTick, applyLockTick, receiveGarbage,
@@ -63,28 +65,34 @@ export class LocalPvpMode {
     this.onScoreUpdate = onScoreUpdate ?? (() => {});
 
     this.states    = [null, null];
-    // lockedScore[i] = the score that player i locked in when they topped out.
-    // null = still alive.
     this.lockedScore = [null, null];
 
     this.inputs = [
       new InputHandler(LOCAL_BINDINGS_P1),
       new InputHandler(LOCAL_BINDINGS_P2),
     ];
-    this.raf      = null;
-    this.lastTime = null;
-    this.over     = false;
-    this.paused   = false;
+    this.raf        = null;
+    this.lastTime   = null;
+    this.over       = false;
+    this.paused     = false;
+    this._recorders = [null, null];
+    this._startTs   = null;
+    this._prevPiece = [null, null];
     this._loop = this._loop.bind(this);
   }
 
   start() {
     const seed = generateSeed();
+    this._startTs = performance.now();
     for (let i = 0; i < 2; i++) {
       const queue = initQueueFromSeed(seed);
       this.states[i] = { ...createGameState(queue), board: emptyBoard() };
       this.lockedScore[i] = null;
       this.inputs[i].attach();
+      this._recorders[i] = new ReplayRecorder({ seed, startLevel: 1 });
+      this._recorders[i].start();
+      this._recorders[i].forceKeyframe(this.states[i]);
+      this._prevPiece[i] = this.states[i].piece;
     }
     this.over     = false;
     this.paused   = false;
@@ -128,20 +136,28 @@ export class LocalPvpMode {
 
       const actions = this.inputs[i].update(dt);
       for (const action of actions) {
+        const pieceBeforeInput = s.piece;
         switch (action) {
-          case 'moveLeft':  s = applyMove(s, -1);                            break;
-          case 'moveRight': s = applyMove(s,  1);                            break;
-          case 'softDrop':  s = applySoftDrop(s);                             break;
-          case 'hardDrop':  s = applyHardDrop(s);                             break;
-          case 'rotateCW':  s = applyRotation(s,  1);                         break;
-          case 'rotateCCW': s = applyRotation(s, -1);                         break;
-          case 'rotate180': s = applyRotation(applyRotation(s, 1), 1);        break;
-          case 'hold':      s = applyHold(s);                                 break;
+          case 'moveLeft':  this._recorders[i]?.recordInput(action); s = applyMove(s, -1);                            break;
+          case 'moveRight': this._recorders[i]?.recordInput(action); s = applyMove(s,  1);                            break;
+          case 'softDrop':  this._recorders[i]?.recordInput(action); s = applySoftDrop(s);                             break;
+          case 'hardDrop':  this._recorders[i]?.recordInput(action); s = applyHardDrop(s);                             break;
+          case 'rotateCW':  this._recorders[i]?.recordInput(action); s = applyRotation(s,  1);                         break;
+          case 'rotateCCW': this._recorders[i]?.recordInput(action); s = applyRotation(s, -1);                         break;
+          case 'rotate180': this._recorders[i]?.recordInput(action); s = applyRotation(applyRotation(s, 1), 1);        break;
+          case 'hold':      this._recorders[i]?.recordInput(action); s = applyHold(s);                                 break;
+        }
+        if (action === 'hardDrop' && s.piece !== pieceBeforeInput) {
+          this._recorders[i]?.recordKeyframe(s);
         }
       }
 
+      const prevPiece = s.piece;
       s = applyGravityTick(s, dt);
       if (s.onGround) s = applyLockTick(s, dt);
+
+      // Keyframe after gravity-triggered lock
+      if (s.piece !== prevPiece) this._recorders[i]?.recordKeyframe(s);
 
       // If a piece just locked, handle garbage queue
       if (s._garbageSent !== undefined) {
@@ -190,8 +206,23 @@ export class LocalPvpMode {
     if (result !== null) {
       this.over = true;
       this._renderAll();
+
+      const durationMs = Math.round(performance.now() - this._startTs);
+      const nicks = ['Player 1', 'Player 2'];
+      const p1Block = this._recorders[0]?.finish({
+        nickname: nicks[0],
+        score: this.states[0].score, lines: this.states[0].lines, level: this.states[0].level,
+      });
+      const p2Block = this._recorders[1]?.finish({
+        nickname: nicks[1],
+        score: this.states[1].score, lines: this.states[1].lines, level: this.states[1].level,
+      });
+      const winnerNick = result.winner === 0 ? nicks[0] : result.winner === 1 ? nicks[1] : null;
+      replayStorage.set(buildReplayData({ mode: 'localPvp', winner: winnerNick, p1Block, p2Block, durationMs }));
+      this._recorders = [null, null];
+
       this.onGameOver({
-        winner: result.winner,   // 0, 1, or -1 (draw)
+        winner: result.winner,
         scores: this.states.map(s => ({ score: s.score, lines: s.lines, level: s.level })),
       });
       return;

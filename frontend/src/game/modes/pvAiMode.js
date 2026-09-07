@@ -9,6 +9,8 @@ import { InputHandler } from '../input/inputHandler.js';
 import { renderBoard, renderNextQueue, renderHoldPiece } from '../renderer/boardRenderer.js';
 import { renderGameOverOverlay } from '../renderer/uiRenderer.js';
 import { AI_THINK_DELAY, AI_MOVE_DELAY, BOARD_W, BOARD_H } from '../../utils/constants.js';
+import { ReplayRecorder } from '../../replay/replayRecorder.js';
+import { buildReplayData, replayStorage } from '../../replay/replayStorage.js';
 
 // ─── PvAiMode ─────────────────────────────────────────────────────────────────
 //
@@ -51,6 +53,10 @@ export class PvAiMode {
     this.lastTime = null;
     this.over     = false;
     this.paused   = false;
+    this._recorder    = null;
+    this._aiRecorder  = null;
+    this._startTs     = null;
+    this._prevPiece = null;
     this._loop = this._loop.bind(this);
   }
 
@@ -66,6 +72,17 @@ export class PvAiMode {
     this.aiMoveTimer       = 0;
     this.aiTargetPlacement = null;
     this.aiMovesLeft       = [];
+    this._startTs = performance.now();
+    this._prevPiece = this.playerState.piece;
+
+    this._recorder = new ReplayRecorder({ seed, startLevel: 1 });
+    this._recorder.start();
+    this._recorder.forceKeyframe(this.playerState);
+
+    this._aiRecorder = new ReplayRecorder({ seed, startLevel: 1 });
+    this._aiRecorder.start();
+    this._aiRecorder.forceKeyframe(this.aiState);
+
     this.input.attach();
     this.lastTime = null;
     this.raf = requestAnimationFrame(this._loop);
@@ -107,19 +124,25 @@ export class PvAiMode {
     if (ps.status === 'playing') {
       const actions = this.input.update(dt);
       for (const action of actions) {
+        const pieceBeforeInput = ps.piece;
         switch (action) {
-          case 'moveLeft':  ps = applyMove(ps, -1);                             break;
-          case 'moveRight': ps = applyMove(ps,  1);                             break;
-          case 'softDrop':  ps = applySoftDrop(ps);                              break;
-          case 'hardDrop':  ps = applyHardDrop(ps);                              break;
-          case 'rotateCW':  ps = applyRotation(ps,  1);                          break;
-          case 'rotateCCW': ps = applyRotation(ps, -1);                          break;
-          case 'rotate180': ps = applyRotation(applyRotation(ps, 1), 1);         break;
-          case 'hold':      ps = applyHold(ps);                                  break;
+          case 'moveLeft':  this._recorder?.recordInput(action); ps = applyMove(ps, -1);                             break;
+          case 'moveRight': this._recorder?.recordInput(action); ps = applyMove(ps,  1);                             break;
+          case 'softDrop':  this._recorder?.recordInput(action); ps = applySoftDrop(ps);                              break;
+          case 'hardDrop':  this._recorder?.recordInput(action); ps = applyHardDrop(ps);                              break;
+          case 'rotateCW':  this._recorder?.recordInput(action); ps = applyRotation(ps,  1);                          break;
+          case 'rotateCCW': this._recorder?.recordInput(action); ps = applyRotation(ps, -1);                          break;
+          case 'rotate180': this._recorder?.recordInput(action); ps = applyRotation(applyRotation(ps, 1), 1);         break;
+          case 'hold':      this._recorder?.recordInput(action); ps = applyHold(ps);                                  break;
+        }
+        if (action === 'hardDrop' && ps.piece !== pieceBeforeInput) {
+          this._recorder?.recordKeyframe(ps);
         }
       }
+      const prevPlayerPiece = ps.piece;
       ps = applyGravityTick(ps, dt);
       if (ps.onGround) ps = applyLockTick(ps, dt);
+      if (ps.piece !== prevPlayerPiece) this._recorder?.recordKeyframe(ps);
 
       if (ps._garbageSent !== undefined) {
         const sent = ps._garbageSent ?? 0;
@@ -150,11 +173,14 @@ export class PvAiMode {
         if (this.aiMoveTimer >= moveDelay && this.aiMovesLeft.length > 0) {
           this.aiMoveTimer = 0;
           const action = this.aiMovesLeft.shift();
-          if (action === 'left')     as = applyMove(as, -1);
-          if (action === 'right')    as = applyMove(as,  1);
-          if (action === 'rotateCW') as = applyRotation(as, 1);
+          if (action === 'left')     { this._aiRecorder?.recordInput('moveLeft');  as = applyMove(as, -1); }
+          if (action === 'right')    { this._aiRecorder?.recordInput('moveRight'); as = applyMove(as,  1); }
+          if (action === 'rotateCW') { this._aiRecorder?.recordInput('rotateCW'); as = applyRotation(as, 1); }
         } else if (this.aiMovesLeft.length === 0) {
+          this._aiRecorder?.recordInput('hardDrop');
+          const prevAiPiece = as.piece;
           as = applyHardDrop(as);
+          if (as.piece !== prevAiPiece) this._aiRecorder?.recordKeyframe(as);
           this.aiTargetPlacement = null;
           this.aiThinkTimer = 0;
         }
@@ -233,8 +259,30 @@ export class PvAiMode {
     const result = this._checkWinner();
     if (result !== null) {
       this.over = true;
+
+      if (this._recorder) {
+        const durationMs = Math.round(performance.now() - this._startTs);
+        const p1Block = this._recorder.finish({
+          nickname: 'Player',
+          score: ps.score, lines: ps.lines, level: ps.level,
+        });
+        const p2Block = this._aiRecorder?.finish({
+          nickname: `AI (${this.difficulty})`,
+          score: as.score, lines: as.lines, level: as.level,
+        }) ?? null;
+        replayStorage.set(buildReplayData({
+          mode: 'pvai',
+          winner: result.winner === 'player' ? 'Player' : result.winner === 'ai' ? `AI (${this.difficulty})` : null,
+          p1Block,
+          p2Block,
+          durationMs,
+        }));
+        this._recorder    = null;
+        this._aiRecorder  = null;
+      }
+
       this.onGameOver({
-        winner:      result.winner, // 'player' | 'ai' | 'draw'
+        winner:      result.winner,
         playerScore: { score: ps.score, lines: ps.lines, level: ps.level },
         aiScore:     { score: as.score, lines: as.lines, level: as.level },
       });
