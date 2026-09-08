@@ -3,72 +3,50 @@ import { CELL_SIZE, COLS, ROWS } from '../../utils/constants.js';
 import GameOverlay from './GameOverlay.jsx';
 import DisconnectOverlay from './DisconnectOverlay.jsx';
 
-const BOARD_W = COLS * CELL_SIZE;
-const BOARD_H = ROWS * CELL_SIZE;
-const PANEL_W = 100;
-const MINI_H  = 70;   // hold canvas height
-const NEXT_H  = 320;  // next canvas height
-
-// ─── GameScreen ──────────────────────────────────────────────────────────────
-// Props:
-//   mode       – 'solo' | 'localPvp' | 'onlinePvp' | 'pvai'
-//   modeParams – extra params passed to the mode constructor
-//   onGameOver – called when game ends (for score submission)
-//   onExit     – called when player chooses to leave
+const BOARD_W  = COLS * CELL_SIZE;
+const BOARD_H  = ROWS * CELL_SIZE;
+const PANEL_W  = 110;
+const MINI_H   = 72;
+const NEXT_H   = 330;
 
 export default function GameScreen({ mode, modeParams = {}, onGameOver, onExit, onWatchReplay }) {
-  // Player 1 canvas refs
-  const mainRef = useRef(null);
-  const nextRef = useRef(null);
-  const holdRef = useRef(null);
-
-  // Player 2 / opponent canvas refs (for localPvp, onlinePvp, pvai)
+  const mainRef  = useRef(null);
+  const nextRef  = useRef(null);
+  const holdRef  = useRef(null);
   const main2Ref = useRef(null);
   const next2Ref = useRef(null);
   const hold2Ref = useRef(null);
-
   const modeInstanceRef = useRef(null);
 
-  const [scoreP1, setScoreP1] = useState({ score: 0, lines: 0, level: 1 });
-  const [scoreP2, setScoreP2] = useState({ score: 0, lines: 0, level: 1 });
-  const [gameOver, setGameOver]     = useState(null);   // null | result object
-  const [disconnect, setDisconnect] = useState(null);   // null | { timeoutSeconds }
+  const [scoreP1, setScoreP1]   = useState({ score: 0, lines: 0, level: 1, combo: -1, b2b: false });
+  const [scoreP2, setScoreP2]   = useState({ score: 0, lines: 0, level: 1, combo: -1, b2b: false });
+  const [gameOver, setGameOver]     = useState(null);
+  const [disconnect, setDisconnect] = useState(null);
   const [paused, setPaused]         = useState(false);
-  const [countdown, setCountdown]   = useState(null);   // 3|2|1|0|null
+  const [countdown, setCountdown]   = useState(null);
 
   const needsSecondBoard = ['localPvp', 'onlinePvp', 'pvai'].includes(mode);
 
-  // ─── ESC: toggle pause ────────────────────────────────────────────────────
-
+  // ── ESC pause
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key !== 'Escape') return;
-      // Ignore ESC when countdown is active, game is over, or disconnecting
       if (countdown !== null || gameOver !== null || disconnect !== null) return;
-
       const instance = modeInstanceRef.current;
       if (!instance) return;
-
       setPaused(prev => {
-        const nextPaused = !prev;
-        if (nextPaused) {
-          instance.pause?.();
-        } else {
-          instance.resume?.();
-        }
-        return nextPaused;
+        const next = !prev;
+        next ? instance.pause?.() : instance.resume?.();
+        return next;
       });
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [countdown, gameOver, disconnect]);
 
-  // ─── Countdown then start mode ────────────────────────────────────────────
-
+  // ── Start mode
   const startMode = useCallback(async () => {
     if (!mainRef.current) return;
-
     let ModeClass;
     if (mode === 'solo') {
       const { SoloMode } = await import('../../game/modes/soloMode.js');
@@ -96,7 +74,6 @@ export default function GameScreen({ mode, modeParams = {}, onGameOver, onExit, 
       onGameOver: (result) => {
         setPaused(false);
         setGameOver(result);
-        // Call parent callback for score submission
         onGameOver?.(result);
       },
     };
@@ -123,7 +100,7 @@ export default function GameScreen({ mode, modeParams = {}, onGameOver, onExit, 
     instance.start();
   }, [mode, modeParams, needsSecondBoard, onGameOver]);
 
-  // Run countdown then start
+  // ── Countdown → start
   useEffect(() => {
     let t = 3;
     setCountdown(3);
@@ -142,63 +119,54 @@ export default function GameScreen({ mode, modeParams = {}, onGameOver, onExit, 
     };
   }, [startMode]);
 
-  // ─── Rematch ──────────────────────────────────────────────────────────────
-
+  // ── Rematch
   const handleRematch = useCallback(() => {
-    setGameOver(null);
-    setDisconnect(null);
-    setPaused(false);
-    setScoreP1({ score: 0, lines: 0, level: 1 });
-    setScoreP2({ score: 0, lines: 0, level: 1 });
+    setGameOver(null); setDisconnect(null); setPaused(false);
+    setScoreP1({ score: 0, lines: 0, level: 1, combo: -1, b2b: false });
+    setScoreP2({ score: 0, lines: 0, level: 1, combo: -1, b2b: false });
     modeInstanceRef.current?.destroy();
     setCountdown(3);
     let t = 3;
     const interval = setInterval(() => {
       t--;
       setCountdown(t);
-      if (t <= 0) {
-        clearInterval(interval);
-        setCountdown(null);
-        startMode();
-      }
+      if (t <= 0) { clearInterval(interval); setCountdown(null); startMode(); }
     }, 1000);
   }, [startMode]);
-
-  // ─── Resume from pause overlay button ────────────────────────────────────
 
   const handleResume = useCallback(() => {
     modeInstanceRef.current?.resume?.();
     setPaused(false);
   }, []);
 
-  // ─── Render ───────────────────────────────────────────────────────────────
+  // ── Labels
+  const label1 = modeParams.nickname ?? 'Player 1';
+  const label2 =
+    mode === 'pvai'      ? `AI (${modeParams.difficulty ?? 'medium'})` :
+    mode === 'onlinePvp' ? (modeParams.opponentNickname ?? 'Opponent') :
+    (modeParams.nickname2 ?? 'Player 2');
 
   return (
     <div style={styles.root}>
-      <PlayerPanel
-        canvasRef={mainRef}
-        nextRef={nextRef}
-        holdRef={holdRef}
-        score={scoreP1}
-        label={modeParams.nickname ?? 'Player 1'}
-        countdown={countdown}
-      />
+      {/* Background glow orbs */}
+      <div style={styles.orbLeft} />
+      <div style={styles.orbRight} />
 
-      {needsSecondBoard && (
+      <div style={styles.boards}>
         <PlayerPanel
-          canvasRef={main2Ref}
-          nextRef={next2Ref}
-          holdRef={hold2Ref}
-          score={scoreP2}
-          label={
-            mode === 'pvai'      ? `AI (${modeParams.difficulty ?? 'medium'})` :
-            mode === 'onlinePvp' ? (modeParams.opponentNickname ?? 'Opponent') :
-            (modeParams.nickname2 ?? 'Player 2')
-          }
-          countdown={countdown}
-          right
+          canvasRef={mainRef} nextRef={nextRef} holdRef={holdRef}
+          score={scoreP1} label={label1}
+          countdown={countdown} accentColor="#ff00cc"
         />
-      )}
+
+        {needsSecondBoard && (
+          <PlayerPanel
+            canvasRef={main2Ref} nextRef={next2Ref} holdRef={hold2Ref}
+            score={scoreP2} label={label2}
+            countdown={countdown} accentColor="#00ccff" right
+          />
+        )}
+      </div>
 
       {disconnect && (
         <DisconnectOverlay
@@ -209,21 +177,13 @@ export default function GameScreen({ mode, modeParams = {}, onGameOver, onExit, 
 
       {gameOver && (
         <GameOverlay
-          result={gameOver}
-          mode={mode}
-          onRematch={handleRematch}
-          onExit={onExit}
-          onWatchReplay={onWatchReplay}
+          result={gameOver} mode={mode}
+          onRematch={handleRematch} onExit={onExit} onWatchReplay={onWatchReplay}
         />
       )}
 
-      {/* Pause overlay — only shown when paused and no game-over */}
       {paused && !gameOver && (
-        <PauseOverlay
-          onResume={handleResume}
-          onExit={onExit}
-          isOnline={mode === 'onlinePvp'}
-        />
+        <PauseOverlay onResume={handleResume} onExit={onExit} isOnline={mode === 'onlinePvp'} />
       )}
     </div>
   );
@@ -233,18 +193,18 @@ export default function GameScreen({ mode, modeParams = {}, onGameOver, onExit, 
 
 function PauseOverlay({ onResume, onExit, isOnline }) {
   return (
-    <div style={styles.pauseOverlay}>
-      <div style={styles.pauseBox}>
-        <div style={styles.pauseTitle}>TẠM DỪNG</div>
+    <div style={styles.overlayBackdrop}>
+      <div style={styles.pauseCard}>
+        <div className="gradient-text" style={styles.pauseTitle}>TẠM DỪNG</div>
         {isOnline && (
           <div style={styles.pauseWarning}>
-            Lưu ý: game online vẫn tiếp tục trên server!
+            ⚠ Game online vẫn tiếp tục trên server!
           </div>
         )}
-        <button style={styles.pauseBtn} onClick={onResume}>
+        <button className="btn-neon" style={{ width: '100%', marginTop: 8 }} onClick={onResume}>
           ▶ Tiếp tục (ESC)
         </button>
-        <button style={{ ...styles.pauseBtn, ...styles.pauseBtnExit }} onClick={onExit}>
+        <button style={styles.ghostBtn} onClick={onExit}>
           ✕ Thoát
         </button>
       </div>
@@ -254,79 +214,121 @@ function PauseOverlay({ onResume, onExit, isOnline }) {
 
 // ─── PlayerPanel ─────────────────────────────────────────────────────────────
 
-function PlayerPanel({ canvasRef, nextRef, holdRef, score, label, countdown, right }) {
+function PlayerPanel({ canvasRef, nextRef, holdRef, score, label, countdown, accentColor, right }) {
   return (
-    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexShrink: 0 }}>
-      {!right && <SidePanel nextRef={nextRef} holdRef={holdRef} score={score} label={label} left />}
+    <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexShrink: 0 }}>
+      {!right && (
+        <SidePanel nextRef={nextRef} holdRef={holdRef} score={score} label={label} accentColor={accentColor} left />
+      )}
 
       <div style={{ position: 'relative', flexShrink: 0 }}>
-        <canvas
-          ref={canvasRef}
-          width={BOARD_W}
-          height={BOARD_H}
-          style={{
-            display: 'block',
-            width: BOARD_W,
-            height: BOARD_H,
-            border: '1px solid #2a2a4a',
-            borderRadius: 4,
-            imageRendering: 'pixelated',
-          }}
-        />
-        {countdown !== null && (
-          <div style={styles.countdown}>
-            <span style={{ fontSize: countdown === 0 ? 52 : 64, color: countdown === 0 ? '#3eff3e' : '#fff' }}>
-              {countdown === 0 ? 'GO!' : countdown}
-            </span>
-          </div>
-        )}
+        {/* Neon border around canvas */}
+        <div style={{ ...styles.boardWrapper, '--accent-color': accentColor }}>
+          <canvas
+            ref={canvasRef}
+            width={BOARD_W}
+            height={BOARD_H}
+            style={{
+              display: 'block',
+              width: BOARD_W,
+              height: BOARD_H,
+              imageRendering: 'pixelated',
+              borderRadius: 8,
+            }}
+          />
+          {countdown !== null && (
+            <div style={styles.countdownOverlay}>
+              <span style={{
+                fontSize: countdown === 0 ? 56 : 72,
+                fontWeight: 700,
+                color: countdown === 0 ? '#00ff88' : '#fff',
+                textShadow: countdown === 0
+                  ? '0 0 30px rgba(0,255,136,0.8)'
+                  : '0 0 30px rgba(255,255,255,0.6)',
+                fontFamily: 'var(--font-mono)',
+                letterSpacing: -2,
+              }}>
+                {countdown === 0 ? 'GO!' : countdown}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
-      {right && <SidePanel nextRef={nextRef} holdRef={holdRef} score={score} label={label} />}
+      {right && (
+        <SidePanel nextRef={nextRef} holdRef={holdRef} score={score} label={label} accentColor={accentColor} />
+      )}
     </div>
   );
 }
 
 // ─── SidePanel ────────────────────────────────────────────────────────────────
 
-function SidePanel({ nextRef, holdRef, score, label, left }) {
+function SidePanel({ nextRef, holdRef, score, label, accentColor }) {
+  const combo = score.combo ?? -1;
+  const b2b   = score.b2b ?? false;
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: PANEL_W, flexShrink: 0 }}>
-      <div style={styles.label}>{label}</div>
-      <InfoBox title="Hold">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: PANEL_W, flexShrink: 0 }}>
+      {/* Player label */}
+      <div style={{ ...styles.playerLabel, background: accentColor + '22', borderColor: accentColor + '55' }}>
+        <span style={{ color: accentColor, fontSize: 11, fontWeight: 700, letterSpacing: 2 }}>
+          {label.toUpperCase()}
+        </span>
+      </div>
+
+      <PanelBox title="Hold">
         <canvas
           ref={holdRef}
-          width={PANEL_W - 16}
+          width={PANEL_W - 20}
           height={MINI_H}
-          style={{ display: 'block', width: PANEL_W - 16, height: MINI_H, imageRendering: 'pixelated' }}
+          style={{ display: 'block', width: PANEL_W - 20, height: MINI_H, imageRendering: 'pixelated' }}
         />
-      </InfoBox>
-      <InfoBox title="Score"><Stat>{score.score.toLocaleString()}</Stat></InfoBox>
-      <InfoBox title="Lines"><Stat>{score.lines}</Stat></InfoBox>
-      <InfoBox title="Level"><Stat>{score.level}</Stat></InfoBox>
-      <InfoBox title="Next">
+      </PanelBox>
+
+      <PanelBox title="Score">
+        <div style={styles.statValue}>{(score.score ?? 0).toLocaleString()}</div>
+      </PanelBox>
+
+      <PanelBox title="Lines">
+        <div style={styles.statValue}>{score.lines ?? 0}</div>
+      </PanelBox>
+
+      <PanelBox title="Level">
+        <div style={styles.statValue}>{score.level ?? 1}</div>
+      </PanelBox>
+
+      {/* Combo badge */}
+      {combo >= 1 && (
+        <div style={{ ...styles.comboBadge, '--accent-color': accentColor }}>
+          <span style={{ color: accentColor }}>{combo}× COMBO</span>
+        </div>
+      )}
+
+      {/* B2B badge */}
+      {b2b && (
+        <div style={styles.b2bBadge}>B2B</div>
+      )}
+
+      <PanelBox title="Next">
         <canvas
           ref={nextRef}
-          width={PANEL_W - 16}
+          width={PANEL_W - 20}
           height={NEXT_H}
-          style={{ display: 'block', width: PANEL_W - 16, height: NEXT_H, imageRendering: 'pixelated' }}
+          style={{ display: 'block', width: PANEL_W - 20, height: NEXT_H, imageRendering: 'pixelated' }}
         />
-      </InfoBox>
+      </PanelBox>
     </div>
   );
 }
 
-function InfoBox({ title, children }) {
+function PanelBox({ title, children }) {
   return (
-    <div style={styles.infoBox}>
-      <div style={styles.infoTitle}>{title}</div>
+    <div className="glass" style={styles.panelBox}>
+      <div style={styles.panelTitle}>{title}</div>
       {children}
     </div>
   );
-}
-
-function Stat({ children }) {
-  return <div style={styles.stat}>{children}</div>;
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -334,77 +336,130 @@ function Stat({ children }) {
 const styles = {
   root: {
     display: 'flex',
-    gap: 24,
+    flexDirection: 'column',
+    alignItems: 'center',
+    minHeight: '100vh',
+    padding: '24px 16px 16px',
+    position: 'relative',
+    overflow: 'hidden',
+    userSelect: 'none',
+  },
+  // background glow orbs
+  orbLeft: {
+    position: 'fixed', top: '60%', left: '-10%',
+    width: 500, height: 500, borderRadius: '50%',
+    background: 'radial-gradient(circle, rgba(204,0,255,0.08) 0%, transparent 70%)',
+    pointerEvents: 'none', zIndex: 0,
+  },
+  orbRight: {
+    position: 'fixed', top: '10%', right: '-10%',
+    width: 500, height: 500, borderRadius: '50%',
+    background: 'radial-gradient(circle, rgba(0,200,255,0.07) 0%, transparent 70%)',
+    pointerEvents: 'none', zIndex: 0,
+  },
+  boards: {
+    display: 'flex',
+    gap: 28,
     alignItems: 'flex-start',
     justifyContent: 'center',
-    padding: '2rem 1rem 1rem',   // extra top padding so buffer zone pieces are visible
-    userSelect: 'none',
-    overflowX: 'auto',
-    overflowY: 'auto',
-    minWidth: 'min-content',
-    minHeight: '100vh',
-    boxSizing: 'border-box',
+    position: 'relative',
+    zIndex: 1,
   },
-  label: {
-    fontSize: 12,
-    color: 'var(--text-muted)',
+
+  // Board wrapper with neon border
+  boardWrapper: {
+    position: 'relative',
+    borderRadius: 10,
+    padding: 2,
+    background: 'linear-gradient(135deg, var(--accent-color, #ff00cc), rgba(255,255,255,0.05))',
+    boxShadow: '0 0 32px rgba(204,0,255,0.12), 0 8px 32px rgba(0,0,0,0.5)',
+  },
+
+  playerLabel: {
     textAlign: 'center',
-    letterSpacing: 1,
+    padding: '6px 10px',
+    borderRadius: 20,
+    border: '1px solid',
     fontFamily: 'var(--font-sans)',
-    textTransform: 'uppercase',
-    padding: '4px 0',
   },
-  countdown: {
-    position: 'absolute', inset: 0,
-    background: 'rgba(5,5,20,0.80)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    borderRadius: 4,
-    fontFamily: 'var(--font-sans)',
-    fontWeight: 700,
+
+  panelBox: {
+    padding: '8px 10px',
   },
-  infoBox: {
-    background: 'var(--surface-1)',
-    border: '0.5px solid var(--border)',
-    borderRadius: 'var(--radius)',
-    padding: '6px 8px',
-  },
-  infoTitle: {
+  panelTitle: {
     fontSize: 10,
     color: 'var(--text-muted)',
     textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 4,
+    letterSpacing: 1.5,
+    marginBottom: 6,
     fontFamily: 'var(--font-sans)',
   },
-  stat: {
-    fontSize: 15,
-    fontWeight: 500,
+  statValue: {
+    fontSize: 18,
+    fontWeight: 700,
     color: 'var(--text-primary)',
-    fontFamily: 'var(--font-mono, monospace)',
+    fontFamily: 'var(--font-mono)',
+    letterSpacing: -0.5,
   },
-  // ── Pause overlay
-  pauseOverlay: {
+
+  // Combo / B2B
+  comboBadge: {
+    background: 'rgba(255,0,200,0.08)',
+    border: '1px solid rgba(255,0,200,0.25)',
+    borderRadius: 20,
+    padding: '4px 10px',
+    textAlign: 'center',
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: 1,
+    animation: 'pulseGlow 0.8s ease-in-out infinite alternate',
+  },
+  b2bBadge: {
+    background: 'linear-gradient(135deg, #ffd700, #ff8800)',
+    color: '#000',
+    borderRadius: 20,
+    padding: '3px 10px',
+    textAlign: 'center',
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: 2,
+    boxShadow: '0 0 12px rgba(255,215,0,0.4)',
+  },
+
+  // Countdown overlay
+  countdownOverlay: {
+    position: 'absolute', inset: 0,
+    background: 'rgba(5,5,20,0.78)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    borderRadius: 8,
+    backdropFilter: 'blur(2px)',
+  },
+
+  // Overlays
+  overlayBackdrop: {
     position: 'fixed', inset: 0,
-    background: 'rgba(5,5,20,0.82)',
+    background: 'rgba(5,5,20,0.85)',
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     zIndex: 100,
+    backdropFilter: 'blur(8px)',
+    animation: 'fadeIn 0.2s ease',
   },
-  pauseBox: {
-    background: 'var(--surface-1, #12122a)',
-    border: '1px solid var(--border, #2a2a4a)',
-    borderRadius: 12,
-    padding: '2rem 2.5rem',
-    display: 'flex', flexDirection: 'column', alignItems: 'center',
-    gap: 16,
-    minWidth: 260,
+  pauseCard: {
+    background: 'linear-gradient(145deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))',
+    border: '1px solid rgba(255,255,255,0.12)',
+    borderRadius: 20,
+    padding: '36px 44px',
+    minWidth: 280,
+    display: 'flex', flexDirection: 'column', gap: 14,
+    alignItems: 'center',
+    backdropFilter: 'blur(20px)',
+    boxShadow: '0 0 60px rgba(204,0,255,0.12), 0 24px 64px rgba(0,0,0,0.5)',
+    animation: 'fadeIn 0.25s ease',
   },
   pauseTitle: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: 700,
-    color: 'var(--text-primary, #fff)',
-    letterSpacing: 4,
-    fontFamily: 'var(--font-sans)',
-    textTransform: 'uppercase',
+    letterSpacing: 6,
     marginBottom: 8,
   },
   pauseWarning: {
@@ -412,25 +467,19 @@ const styles = {
     color: '#f0a040',
     textAlign: 'center',
     maxWidth: 220,
-    lineHeight: 1.5,
-    fontFamily: 'var(--font-sans)',
+    lineHeight: 1.6,
   },
-  pauseBtn: {
+  ghostBtn: {
     width: '100%',
     padding: '10px 0',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: 600,
-    fontFamily: 'var(--font-sans)',
     letterSpacing: 1,
-    background: 'var(--accent, #3a3aff)',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 8,
-    cursor: 'pointer',
-  },
-  pauseBtnExit: {
     background: 'transparent',
-    border: '1px solid var(--border, #2a2a4a)',
-    color: 'var(--text-muted, #888)',
+    color: 'var(--text-muted)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    borderRadius: 50,
+    cursor: 'pointer',
+    transition: 'border-color 0.2s, color 0.2s',
   },
 };

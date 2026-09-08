@@ -1,0 +1,13 @@
+{
+  "name": "tetris-platform",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "concurrently --names \"BE,FE\" --prefix-colors \"cyan,magenta\" \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "install:all": "npm install && npm install --prefix frontend && npm install --prefix backend",
+    "build": "npm run build --prefix frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

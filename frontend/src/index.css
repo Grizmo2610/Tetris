@@ -1,29 +1,28 @@
-/* ─── CSS Variables ─────────────────────────────────────────────────────────── */
+/* ─── Google Fonts ──────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap');
 
+/* ─── CSS Variables ─────────────────────────────────────────────────────────── */
 :root {
-  --bg:           #05050f;
-  --surface-1:    #0d0d1e;
-  --surface-2:    #12122a;
-  --border:       #1e1e38;
-  --text-primary: #e8e8ff;
-  --text-muted:   #666688;
-  --accent:       #3a3acc;
+  --bg:           #0a0515;
+  --bg-2:         #100820;
+  --surface-1:    rgba(255,255,255,0.06);
+  --surface-2:    rgba(255,255,255,0.10);
+  --border:       rgba(255,255,255,0.10);
+  --border-glow:  rgba(255,255,255,0.18);
+  --text-primary: #f0f0ff;
+  --text-muted:   rgba(255,255,255,0.45);
+  --accent:       #cc00ff;
+  --accent-2:     #3333ff;
+  --accent-cyan:  #00ccff;
   --font-sans:    'Inter', 'Segoe UI', system-ui, sans-serif;
   --font-mono:    'JetBrains Mono', 'Courier New', monospace;
-  --radius:       8px;
+  --radius:       12px;
+  --radius-sm:    8px;
 }
 
 /* ─── Reset ──────────────────────────────────────────────────────────────────── */
-
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
-
-html {
-  height: 100%;
-}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { height: 100%; }
 
 body, #root {
   min-height: 100%;
@@ -35,39 +34,104 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   overflow-y: auto;
+  /* Animated gradient background */
+  background:
+    radial-gradient(ellipse at 20% 80%, rgba(120,0,255,0.12) 0%, transparent 55%),
+    radial-gradient(ellipse at 80% 20%, rgba(255,0,128,0.10) 0%, transparent 55%),
+    radial-gradient(ellipse at 50% 50%, rgba(0,200,255,0.04) 0%, transparent 65%),
+    #0a0515;
 }
 
 /* ─── Scrollbar ──────────────────────────────────────────────────────────────── */
-
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 3px; }
 
 /* ─── Focus ring ─────────────────────────────────────────────────────────────── */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
+/* ─── Global button reset ────────────────────────────────────────────────────── */
+button { cursor: pointer; font-family: inherit; }
 
-/* ─── Button reset ───────────────────────────────────────────────────────────── */
-
-button {
-  cursor: pointer;
-  font-family: inherit;
-}
-
-/* ─── Input reset ────────────────────────────────────────────────────────────── */
-
+/* ─── Global input ───────────────────────────────────────────────────────────── */
 input, textarea {
   font-family: inherit;
   color: var(--text-primary);
-  background: var(--surface-1);
+  background: rgba(255,255,255,0.05);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
+  transition: border-color 0.2s;
 }
-
 input:focus, textarea:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(204,0,255,0.15);
+}
+
+/* ─── Neon button mixin (used via class) ─────────────────────────────────────── */
+.btn-neon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 32px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #fff;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border: none;
+  border-radius: 50px;
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.4,0,0.2,1), box-shadow 0.2s;
+  box-shadow: 0 0 24px rgba(204,0,255,0.25), 0 4px 16px rgba(0,0,0,0.3);
+  position: relative;
+  overflow: hidden;
+}
+.btn-neon::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%; width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+  transition: left 0.5s;
+}
+.btn-neon:hover::before { left: 100%; }
+.btn-neon:hover {
+  transform: scale(1.04) translateY(-2px);
+  box-shadow: 0 0 40px rgba(204,0,255,0.45), 0 8px 32px rgba(0,0,0,0.4);
+}
+
+/* ─── Glass card ─────────────────────────────────────────────────────────────── */
+.glass {
+  background: linear-gradient(145deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* ─── Gradient text ──────────────────────────────────────────────────────────── */
+.gradient-text {
+  background: linear-gradient(90deg, #ff00cc, #3333ff, #00ccff, #ff00cc);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradientShift 5s ease infinite;
+}
+
+@keyframes gradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  50%       { background-position: 100% 50%; }
+}
+
+@keyframes pulseGlow {
+  from { opacity: 0.6; }
+  to   { opacity: 1; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
